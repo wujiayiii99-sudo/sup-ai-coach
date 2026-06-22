@@ -1,0 +1,343 @@
+/* ================================================================
+   桨板直线划行 AI 陪练 - 主样式
+   ================================================================ */
+
+.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  padding: 24px 16px;
+  gap: 16px;
+}
+
+/* ---- 标题 ---- */
+.app-title {
+  font-size: 1.6rem;
+  color: #00d4ff;
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+/* ---- 说明文字 ---- */
+.app-description {
+  font-size: 1rem;
+  color: #a0a0b0;
+  text-align: center;
+  max-width: 480px;
+  line-height: 1.6;
+}
+
+/* ---- 控制按钮区域 ---- */
+.controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.btn {
+  padding: 10px 28px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-start {
+  background-color: #00d4ff;
+  color: #0f0f23;
+  font-weight: 600;
+}
+
+.btn-stop {
+  background-color: #ff4466;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ---- 视频与 Canvas 叠加容器 ---- */
+.video-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  background-color: #1a1a2e;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* 视频元素：宽度撑满，高度自适应 */
+.video-wrapper video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Canvas 叠在视频上方，完全覆盖相同区域 */
+.video-wrapper canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* 镜像翻转：前置摄像头画面与 Canvas 同步镜像 */
+.video-wrapper.mirrored video,
+.video-wrapper.mirrored canvas {
+  transform: scaleX(-1);
+}
+
+.pose-canvas {
+  display: block;
+}
+
+/* ---- 状态栏 ---- */
+.status-bar {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  background-color: #1a1a2e;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot-loading {
+  background-color: #ffaa00;
+  animation: pulse 1s infinite;
+}
+
+.dot-ready {
+  background-color: #00d4ff;
+}
+
+.dot-detecting {
+  background-color: #00ff88;
+  animation: pulse 1s infinite;
+}
+
+.dot-no-body {
+  background-color: #ffaa00;
+}
+
+.dot-error {
+  background-color: #ff4466;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ---- FPS 显示 ---- */
+.fps-display {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  background-color: #1a1a2e;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 错误提示 ---- */
+.error-msg {
+  color: #ff4466;
+  background-color: rgba(255, 68, 102, 0.1);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  max-width: 520px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* ---- 隐私提示 ---- */
+.privacy-notice {
+  font-size: 0.8rem;
+  color: #808090;
+  text-align: center;
+  max-width: 480px;
+  line-height: 1.5;
+}
+
+/* ---- V1 基础动作指标面板 ---- */
+.metrics-panel {
+  width: 100%;
+  max-width: 520px;
+  background-color: #1a1a2e;
+  border-radius: 12px;
+  padding: 16px 20px;
+}
+
+.metrics-title {
+  font-size: 1rem;
+  color: #00d4ff;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+
+.metrics-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metric-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.metric-label {
+  font-size: 0.9rem;
+  color: #a0a0b0;
+  flex-shrink: 0;
+}
+
+.metric-value {
+  font-size: 0.9rem;
+  color: #e0e0e0;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  word-break: break-all;
+}
+
+.status-ok {
+  color: #00ff88;
+}
+
+.status-warn {
+  color: #ffaa00;
+}
+
+.marker-perf {
+  color: #808090;
+  font-size: 0.8rem;
+}
+
+/* ---- V3 面板中分析状态特别样式 ---- */
+.metrics-panel .metric-item:first-child .metric-value {
+  font-weight: 600;
+}
+
+/* ================================================================
+   响应式适配
+   ================================================================ */
+@media (max-width: 600px) {
+  .app {
+    padding: 10px 8px;
+    gap: 10px;
+  }
+
+  .app-title {
+    font-size: 1.2rem;
+  }
+
+  .app-description {
+    font-size: 0.9rem;
+  }
+
+  .btn {
+    padding: 10px 22px;
+    font-size: 0.95rem;
+    min-height: 44px;
+  }
+
+  .status-indicator,
+  .fps-display {
+    font-size: 0.8rem;
+    padding: 4px 12px;
+  }
+
+  .privacy-notice {
+    font-size: 0.75rem;
+    max-width: 100%;
+  }
+
+  .metrics-panel {
+    padding: 12px 14px;
+  }
+
+  .metrics-title {
+    font-size: 0.9rem;
+  }
+
+  .metric-label,
+  .metric-value {
+    font-size: 0.8rem;
+  }
+
+  /* 竖屏时指标文本允许换行 */
+  .metric-value {
+    word-break: break-word;
+    max-width: 60%;
+  }
+}
+
+/* 横屏手机 */
+@media (max-height: 500px) and (orientation: landscape) {
+  .app {
+    padding: 6px 12px;
+    gap: 6px;
+  }
+
+  .app-title {
+    font-size: 1rem;
+  }
+
+  .app-description {
+    font-size: 0.8rem;
+  }
+
+  .video-wrapper {
+    max-width: 60vh;
+  }
+
+  .btn {
+    padding: 6px 16px;
+    font-size: 0.85rem;
+    min-height: 36px;
+  }
+}
+
+@media (min-width: 1200px) {
+  .app-title {
+    font-size: 2rem;
+  }
+
+  .video-wrapper {
+    max-width: 960px;
+  }
+}

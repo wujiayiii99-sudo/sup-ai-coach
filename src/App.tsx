@@ -1,10 +1,13 @@
 /**
  * 桨板直线划行 AI 陪练 - 主组件
  *
- * 功能：摄像头管理、姿态检测循环、状态显示
+ * V4.1 更新：
+ * - V2/V3 由 featureFlags 控制，默认关闭
+ * - V4.1 纯人体徒手划桨动作指标层
+ * - 侧选 UI + 20 项指标面板 + debug 导出
  */
-
 import { useState, useRef, useEffect, useCallback } from "react";
+import type { NormalizedLandmark } from "@mediapipe/tasks-vision";
 import { initializeDetector, detectPose, closeDetector } from "./poseDetector";
 import { startCamera, stopCamera } from "./camera";
 import { drawPose, drawStickMarkers } from "./drawing";
@@ -49,6 +52,12 @@ import {
   resetPostureState,
   type PosturePhase,
 } from "./postureStabilizer";
+// ---- V4.1 导入 ----
+import { FEATURE_FLAGS } from "./featureFlags";
+import { getStrokeRoles } from "./bodyStroke/bodyStrokeRoles";
+import { computeStrokeMetrics } from "./bodyStroke/bodyStrokeMetrics";
+import { StrokeTracker } from "./bodyStroke/bodyStrokeTracker";
+import type { BodyStrokeMetrics, StrokeSide, CalibrationStatus } from "./bodyStroke/bodyStrokeTypes";
 import "./App.css";
 
 /** 应用状态类型 */
@@ -107,6 +116,36 @@ function App() {
   const [postureReason, setPostureReason] = useState<string | null>(null);
   const [wristDist, setWristDist] = useState<WristStickResult | null>(null);
 
+  // ---- V4.1 状态 ----
+  const [selectedStrokeSide] = useState<StrokeSide>("right");
+  const [detectedStrokeSide, setDetectedStrokeSide] = useState<StrokeSide | null>(null);
+  const [strokeMetrics, setStrokeMetrics] = useState<BodyStrokeMetrics | null>(null);
+  const [calibrationStatus, setCalibrationStatus] = useState<CalibrationStatus>("uncalibrated");
+  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
+  const [sessionStartedAt, setSessionStartedAt] = useState<number | null>(null);
+  const [sessionSeconds, setSessionSeconds] = useState(0);
+  const [sessionReportReady, setSessionReportReady] = useState(false);
+  const [sessionReportData, setSessionReportData] = useState<{
+    items: { title: string; value: string; comment: string }[];
+    score: number | null;
+  } | null>(null);
+  const selectedSideRef = useRef<StrokeSide>("right");
+  const detectedStrokeSideRef = useRef<StrokeSide | null>(null);
+  const strokeTrackerRef = useRef<StrokeTracker | null>(null);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const lastDebugRef = useRef<any>(null);
+  const [lastDebugText, setLastDebugText] = useState<string>("{}");
+  const latestStrokeMetricsRef = useRef<BodyStrokeMetrics | null>(null);
+
+  // 同步 ref
+  useEffect(() => {
+    selectedSideRef.current = selectedStrokeSide;
+  }, [selectedStrokeSide]);
+
+  useEffect(() => {
+    detectedStrokeSideRef.current = detectedStrokeSide;
+  }, [detectedStrokeSide]);
+
   // ================================================================
   // 初始化姿态检测模型
   // ================================================================
@@ -134,7 +173,6 @@ function App() {
 
     init();
 
-    // 组件卸载时释放模型资源
     return () => {
       cancelled = true;
       closeDetector();
@@ -142,7 +180,18 @@ function App() {
   }, []);
 
   // ================================================================
-  // 检测循环：摄像头开启时持续检测并绘制
+  // 初始化 StrokeTracker
+  // ================================================================
+  useEffect(() => {
+    strokeTrackerRef.current = new StrokeTracker();
+    return () => {
+      strokeTrackerRef.current?.resetAll();
+    strokeTrackerRef.current = null;
+    };
+  }, []);
+
+  // ================================================================
+  // 检测循环
   // ================================================================
   useEffect(() => {
     if (!isCameraOn) return;
@@ -152,7 +201,6 @@ function App() {
     function detectLoop(): void {
       if (!isRunningRef.current) return;
 
-      // 每次回调重新读取 ref，确保元素未被卸载
       const v = videoRef.current;
       const c = canvasRef.current;
       if (!v || !c) {
@@ -160,27 +208,23 @@ function App() {
         return;
       }
 
-      // 确保视频帧已就绪
+      let _lastFrameLandmarks: NormalizedLandmark[] | null = null;
       if (v.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
         try {
           const rawLandmarks = detectPose(v);
-
-          // 对原始关键点应用平滑（仅影响绘制，不修改原始数据）
+          _lastFrameLandmarks = rawLandmarks;
           const displayLandmarks = applySmoothing(rawLandmarks, v.currentTime);
 
-          // 同步 canvas 尺寸与视频尺寸
           if (c.width !== v.videoWidth || c.height !== v.videoHeight) {
             c.width = v.videoWidth;
             c.height = v.videoHeight;
           }
 
-          // 绘制关键点和骨架（使用平滑后的数据）
           const ctx = c.getContext("2d");
           if (ctx) {
             drawPose(ctx, c.width, c.height, displayLandmarks);
           }
 
-          // 状态判断基于原始检测结果，不受平滑影响
           const newStatus: AppStatus =
             rawLandmarks && rawLandmarks.length > 0
               ? "人体识别正常"
@@ -190,8 +234,10 @@ function App() {
             setStatus(newStatus);
           }
 
-          // ---- V2 杆体标记检测（限频 ~12fps） ----
-          if (v.currentTime !== lastFrameTimeRef.current) {
+          // ============================================================
+          // V2 杆体标记检测（由 FEATURE_FLAGS 控制，默认关闭）
+          // ============================================================
+          if (FEATURE_FLAGS.V2_STICK_DETECTION && v.currentTime !== lastFrameTimeRef.current) {
             const markerResult = detectMarkers(v, rawLandmarks);
             if (markerResult) {
               markerRedRef.current = markerResult.pink;
@@ -199,11 +245,9 @@ function App() {
               markerValidRef.current =
                 markerResult.score >= MARKER_DETECTOR_CONFIG.minTotalScore;
 
-              // 标记检测性能
               const perf = getMarkerPerformance();
               setMarkerDetectTime(`${perf.lastMs.toFixed(1)}ms`);
 
-              // 计算杆体状态和角度
               const rawStatus = computeRawStickStatus(
                 markerResult.pink !== null,
                 markerResult.green !== null,
@@ -216,10 +260,8 @@ function App() {
               let rawAngleDeg: number | null = null;
               if (markerResult.pink && markerResult.green) {
                 const angle = computeStickAngle(
-                  markerResult.pink.x,
-                  markerResult.pink.y,
-                  markerResult.green.x,
-                  markerResult.green.y
+                  markerResult.pink.x, markerResult.pink.y,
+                  markerResult.green.x, markerResult.green.y
                 );
                 rawAngleDeg = angle ? angle.signedDeg : null;
               }
@@ -239,102 +281,109 @@ function App() {
                 setStickAngleStr("--");
               }
 
-              // 在 Canvas 上绘制标记
               if (ctx) {
-                drawStickMarkers(
-                  ctx,
-                  c.width,
-                  c.height,
-                  markerResult.pink,
-                  markerResult.green,
+                drawStickMarkers(ctx, c.width, c.height,
+                  markerResult.pink, markerResult.green,
                   markerResult.score >= MARKER_DETECTOR_CONFIG.minTotalScore
                 );
               }
             }
           }
 
-          // ---- V1 基础指标计算（仅在新视频帧上执行） ----
+          // ============================================================
+          // V1 基础指标（保持运行）+ V3 + V4.1
+          // ============================================================
           if (v.currentTime !== lastFrameTimeRef.current) {
             lastFrameTimeRef.current = v.currentTime;
             const ct = v.currentTime;
 
-            // 人体完整入镜
+            // ---- V1 指标 ----
             const rawStatus = computeBodyStatus(rawLandmarks);
-            const stableStatus = stabilizeBodyStatus(rawStatus, ct);
-            setMetricsBodyStatus(stableStatus);
+            const stableBodyStatus = stabilizeBodyStatus(rawStatus, ct);
+            setMetricsBodyStatus(stableBodyStatus);
 
-            // 身体侧倾角
             const signedDeg = computeSignedLeanDeg(rawLandmarks);
-            const smoothedDeg = smoothLeanAngle(signedDeg, ct);
-            setMetricsLean(smoothedDeg !== null ? formatLeanAngle(smoothedDeg) : null);
+            const smoothedLeanDeg = smoothLeanAngle(signedDeg, ct);
+            setMetricsLean(smoothedLeanDeg !== null ? formatLeanAngle(smoothedLeanDeg) : null);
 
-            // 双手间距比
             const rawRatio = computeHandSpanRatio(rawLandmarks);
             const smoothedRatio = smoothHandRatio(
-              rawRatio !== null ? rawRatio.ratio : null,
-              ct
+              rawRatio !== null ? rawRatio.ratio : null, ct
             );
             setMetricsHandRatio(smoothedRatio);
 
-            // ---- V3 静态握桨姿势 ----
-            const pink = markerRedRef.current;
-            const green = markerBlueRef.current;
-            const markersValid = markerValidRef.current;
+            // ---- V3 静态握桨姿势（由 FEATURE_FLAGS 控制，默认关闭）----
+            if (FEATURE_FLAGS.V3_POSTURE_ANALYSIS) {
+              const pink = markerRedRef.current;
+              const green = markerBlueRef.current;
+              const markersValid = markerValidRef.current;
 
-            // 手腕距杆体距离
-            let wristResult: WristStickResult | null = null;
-            if (rawLandmarks && pink && green && markersValid) {
-              wristResult = computeWristStickDistances(
-                rawLandmarks,
-                pink.x, pink.y,
-                green.x, green.y
+              let wristResult: WristStickResult | null = null;
+              if (rawLandmarks && pink && green && markersValid) {
+                wristResult = computeWristStickDistances(
+                  rawLandmarks, pink.x, pink.y, green.x, green.y
+                );
+              }
+              setWristDist(wristResult);
+
+              if (rawLandmarks && rawLandmarks.length >= 33) {
+                const lw = rawLandmarks[15];
+                const rw = rawLandmarks[16];
+                if (lw && rw && (lw.visibility ?? 0) >= 0.5 && (rw.visibility ?? 0) >= 0.5) {
+                  pushStabilitySample({
+                    time: performance.now(),
+                    leftWristX: lw.x, leftWristY: lw.y,
+                    rightWristX: rw.x, rightWristY: rw.y,
+                    stickAngle: stickAngleRef.current ?? 0,
+                    leanAngle: signedDeg ?? 0,
+                    handRatio: rawRatio !== null ? rawRatio.ratio : null,
+                  });
+                }
+              }
+
+              const blockedReason = getPostureBlockedReason(
+                stableBodyStatus, stickStatusRef.current, rawLandmarks,
+                stickAngleRef.current, wristResult
               );
-            }
-            setWristDist(wristResult);
+              const isStable = blockedReason === null
+                ? checkStability(performance.now()) : false;
+              const phase = updatePostureState(
+                blockedReason === null && isStable, performance.now()
+              );
+              setPosturePhase(phase);
 
-            // 稳定性样本
-            if (rawLandmarks && rawLandmarks.length >= 33) {
-              const lw = rawLandmarks[15];
-              const rw = rawLandmarks[16];
-              if (lw && rw && (lw.visibility ?? 0) >= 0.5 && (rw.visibility ?? 0) >= 0.5) {
-                pushStabilitySample({
-                  time: performance.now(),
-                  leftWristX: lw.x,
-                  leftWristY: lw.y,
-                  rightWristX: rw.x,
-                  rightWristY: rw.y,
-                  stickAngle: stickAngleRef.current ?? 0,
-                  leanAngle: signedDeg ?? 0,
-                  handRatio: rawRatio !== null ? rawRatio.ratio : null,
-                });
+              if (phase === "warming") {
+                setPostureReason("请保持当前姿势片刻");
+              } else if (phase === "idle") {
+                setPostureReason(blockedReason ?? "无法进行姿势分析");
+              } else {
+                setPostureReason(null);
               }
             }
 
-            // 姿势可分析条件 + 稳定性
-            const blockedReason = getPostureBlockedReason(
-              stableStatus,
-              stickStatusRef.current,
-              rawLandmarks,
-              stickAngleRef.current,
-              wristResult
-            );
+            // ---- V4.1 徒手划桨指标 ----
+            if (FEATURE_FLAGS.V4_STROKE_ANALYSIS && rawLandmarks) {
+              const now = performance.now();
+              const prevTs = strokeTrackerRef.current
+                ? (strokeTrackerRef.current as any)._prevTimestamp
+                : now;
+              const inferredSide = inferStrokeSide(rawLandmarks);
+              if (inferredSide && inferredSide !== detectedStrokeSideRef.current) {
+                setDetectedStrokeSide(inferredSide);
+              }
+              const side = detectedStrokeSideRef.current ?? selectedSideRef.current;
+              const roles = getStrokeRoles(side);
+              const raw = computeStrokeMetrics(
+                rawLandmarks, roles, now, ct,
+                typeof prevTs === "number" && prevTs > 0 ? prevTs : now,
+              );
+              const smoothed = strokeTrackerRef.current!.update(raw, now, stableBodyStatus);
+              setStrokeMetrics(smoothed);
+              latestStrokeMetricsRef.current = smoothed;
 
-            const isStable = blockedReason === null
-              ? checkStability(performance.now())
-              : false;
-
-            const phase = updatePostureState(
-              blockedReason === null && isStable,
-              performance.now()
-            );
-            setPosturePhase(phase);
-
-            if (phase === "warming") {
-              setPostureReason("请保持当前姿势片刻");
-            } else if (phase === "idle") {
-              setPostureReason(blockedReason ?? "无法进行姿势分析");
-            } else {
-              setPostureReason(null);
+              // 校准状态同步到 UI
+              const calStatus = strokeTrackerRef.current!.calibrationStatus;
+              setCalibrationStatus(calStatus);
             }
           }
         } catch (err) {
@@ -348,7 +397,7 @@ function App() {
         }
       }
 
-      // ---- FPS 计算（每秒更新一次） ----
+      // ---- FPS ----
       fpsCounterRef.current++;
       const now = performance.now();
       const elapsed = now - fpsLastTimeRef.current;
@@ -358,17 +407,78 @@ function App() {
         fpsLastTimeRef.current = now;
       }
 
+      // 更新最近一帧调试数据（轻量摘要）
+      try {
+        const visibleCount = (_lastFrameLandmarks || []).reduce((acc: number, kp: any) => acc + (((kp.visibility ?? 0) >= 0.5) ? 1 : 0), 0);
+        lastDebugRef.current = {
+          timestamp: Date.now(),
+          status: statusRef.current,
+          calibrationStatus,
+          posturePhase,
+          markerValid: markerValidRef.current,
+          stickStatus: stickStatusRef.current,
+          stickAngle: stickAngleRef.current,
+          detectedStrokeSide: detectedStrokeSideRef.current,
+          metrics: {
+            lean: metricsLean,
+            handRatio: metricsHandRatio,
+            strokeMetrics: sm ? {
+              elbowAngleDeg: sm.elbowAngleDeg,
+              kneeAngleDeg: sm.kneeAngleDeg,
+              torsoLeanDeg: sm.torsoLeanDeg,
+              shoulderHipProjectedAngleDiffDeg: sm.shoulderHipProjectedAngleDiffDeg,
+            } : null,
+          },
+          rawLandmarksCount: _lastFrameLandmarks ? _lastFrameLandmarks.length : 0,
+          visibleKeypoints: visibleCount,
+        };
+      } catch (e) {
+        // ignore
+      }
+
       animationIdRef.current = requestAnimationFrame(detectLoop);
     }
 
     animationIdRef.current = requestAnimationFrame(detectLoop);
 
-    // 停止摄像头时取消动画循环
     return () => {
       isRunningRef.current = false;
       cancelAnimationFrame(animationIdRef.current);
     };
   }, [isCameraOn]);
+
+  useEffect(() => {
+    if (!isCameraOn || sessionStartedAt === null) return;
+    const id = window.setInterval(() => {
+      const elapsedSeconds = Math.floor((performance.now() - sessionStartedAt) / 1000);
+      setSessionSeconds(Math.min(elapsedSeconds, 15));
+      if (elapsedSeconds >= 15) {
+        clearInterval(id); // 冻结报告，不再覆盖
+        setSessionReportReady(true);
+        // 从 ref 读取最新指标，避免闭包陈旧值
+        const m = latestStrokeMetricsRef.current;
+        const activeSide = detectedStrokeSideRef.current ?? selectedSideRef.current;
+        const score = m ? computeSessionScore(m) : null;
+        const items = m ? buildReportItems(m, activeSide) : [];
+        setSessionReportData({ items, score });
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [isCameraOn, sessionStartedAt]);
+
+  // 当调试面板展开时，定时把 lastDebugRef 写入可复制文本（降低渲染频率）
+  useEffect(() => {
+    if (!debugOpen) return;
+    const id = window.setInterval(() => {
+      try {
+        const obj = lastDebugRef.current ?? {};
+        setLastDebugText(JSON.stringify(obj, null, 2));
+      } catch (e) {
+        setLastDebugText("{}");
+      }
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [debugOpen]);
 
   // ================================================================
   // 页面后台时自动停止摄像头
@@ -385,16 +495,23 @@ function App() {
         setStatus("摄像头未启动");
         resetSmoothing();
         resetMetrics();
-        resetStickState();
-        resetMarkerState();
-        resetPostureState();
-        clearStabilityHistory();
+        if (FEATURE_FLAGS.V2_STICK_DETECTION) {
+          resetStickState();
+          resetMarkerState();
+        }
+        if (FEATURE_FLAGS.V3_POSTURE_ANALYSIS) {
+          resetPostureState();
+          clearStabilityHistory();
+        }
         setMetricsBodyStatus("");
         setMetricsLean(null);
         setMetricsHandRatio(null);
         markerRedRef.current = null;
         markerBlueRef.current = null;
         markerValidRef.current = false;
+        strokeTrackerRef.current?.resetAll();
+        setStrokeMetrics(null);
+        setCalibrationStatus("uncalibrated");
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext("2d");
@@ -408,34 +525,73 @@ function App() {
   }, []);
 
   // ================================================================
-  // 页面卸载时释放摄像头资源并重置平滑状态
+  // 页面卸载时释放资源
   // ================================================================
   useEffect(() => {
     return () => {
       stopCamera(streamRef.current);
       resetSmoothing();
       resetMetrics();
-      resetStickState();
-      resetMarkerState();
-      resetPostureState();
-      clearStabilityHistory();
+      if (FEATURE_FLAGS.V2_STICK_DETECTION) {
+        resetStickState();
+        resetMarkerState();
+      }
+      if (FEATURE_FLAGS.V3_POSTURE_ANALYSIS) {
+        resetPostureState();
+        clearStabilityHistory();
+      }
+      strokeTrackerRef.current?.resetAll();
     };
+  }, []);
+
+  // ================================================================
+  // D 键导出 debug JSON
+  // ================================================================
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "d" || e.key === "D") {
+        const tracker = strokeTrackerRef.current;
+        if (!tracker) return;
+        const json = tracker.debug.exportJSON();
+        const blob = new Blob([json], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `v41-debug-${Date.now()}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
   }, []);
 
   // ================================================================
   // 事件处理
   // ================================================================
 
-  /** 启动摄像头 */
   const handleStartCamera = useCallback(async () => {
     try {
       setErrorMessage(null);
       resetSmoothing();
       resetMetrics();
-      resetStickState();
-      resetMarkerState();
-      resetPostureState();
-      clearStabilityHistory();
+      if (FEATURE_FLAGS.V2_STICK_DETECTION) {
+        resetStickState();
+        resetMarkerState();
+      }
+      if (FEATURE_FLAGS.V3_POSTURE_ANALYSIS) {
+        resetPostureState();
+        clearStabilityHistory();
+      }
+      strokeTrackerRef.current?.resetAll();
+      setStrokeMetrics(null);
+      setCalibrationStatus("uncalibrated");
+      setDetectedStrokeSide(null);
+      detectedStrokeSideRef.current = null;
+      // 流程变更：仅开启摄像头，不自动开始测试，等待用户在侧边栏点击“开始测试”
+      setSessionStartedAt(null);
+      setSessionSeconds(0);
+      setSessionReportReady(false);
       const video = videoRef.current;
       if (!video) return;
 
@@ -455,15 +611,197 @@ function App() {
     }
   }, []);
 
-  /** 停止摄像头 */
+  const handleStartTest = useCallback(() => {
+    // 必要条件：检测到人体并且四肢/站姿/校准准备就绪
+    const bodyReady = status === "人体识别正常" && metricsLean !== null && metricsHandRatio !== null;
+    const postureReady = FEATURE_FLAGS.V3_POSTURE_ANALYSIS ? posturePhase === "active" : true;
+    const calibrationReady = calibrationStatus === "ready";
+    if (!bodyReady || !postureReady || !calibrationReady) {
+      // 不满足条件直接提示（UI 按钮会被禁用），但为保险起见不启动
+      return;
+    }
+
+    // 清除之前的报告（开始新测试）
+    setSessionReportData(null);
+    setDetectedStrokeSide(null);
+    detectedStrokeSideRef.current = null;
+    // 仅清空 debug，保留校准基线
+    strokeTrackerRef.current?.debug.reset();
+    strokeTrackerRef.current!._prevHandRatio = null;
+    strokeTrackerRef.current!._prevHandRatioTime = -1;
+    strokeTrackerRef.current!._prevTimestamp = -1;
+    setStrokeMetrics(null);
+    setSessionReportReady(false);
+    setSessionSeconds(0);
+    setSessionStartedAt(performance.now());
+  }, [status, metricsLean, metricsHandRatio, posturePhase, calibrationStatus]);
+
+  const computeSessionScore = (smParam: BodyStrokeMetrics | null): number | null => {
+    if (!smParam) return null;
+    const scores: number[] = [];
+    const cap = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
+
+    if (smParam.shoulderHipProjectedAngleDiffDeg !== null) {
+      const d = Math.abs(smParam.shoulderHipProjectedAngleDiffDeg);
+      scores.push(cap(100 - d * 3));
+    }
+
+    const activeElbow = (detectedStrokeSideRef.current ?? selectedSideRef.current) === 'right'
+      ? smParam.elbowAngleDeg.right
+      : smParam.elbowAngleDeg.left;
+    if (activeElbow !== null) {
+      const d = Math.abs(activeElbow - 155);
+      scores.push(cap(100 - d * 1.5));
+    }
+
+    if (smParam.kneeAngleDeg.left !== null && smParam.kneeAngleDeg.right !== null) {
+      const avg = (smParam.kneeAngleDeg.left + smParam.kneeAngleDeg.right) / 2;
+      const d = Math.abs(avg - 165);
+      scores.push(cap(100 - d * 1.2));
+    }
+
+    if (smParam.powerWristRelativeDirectionDeg !== null) {
+      const a = Math.abs(smParam.powerWristRelativeDirectionDeg);
+      scores.push(cap(100 - a * 2.5));
+    }
+
+    if (smParam.torsoLeanDeg !== null) {
+      const lean = Math.abs(smParam.torsoLeanDeg);
+      const v = lean <= 8 ? 100 : Math.max(0, 100 - (lean - 8) * 5);
+      scores.push(cap(v));
+    }
+
+    if (scores.length === 0) return null;
+    const avg = Math.round(scores.reduce((s, x) => s + x, 0) / scores.length);
+    return cap(avg);
+  };
+
+  /** 从指标数据构建报告项（可在组件渲染和定时器回调中复用） */
+  const buildReportItems = useCallback((
+    m: BodyStrokeMetrics,
+    activeSide: StrokeSide,
+  ): { title: string; value: string; comment: string }[] => {
+    const fv = (v: number | null | undefined, d = 2) =>
+      v === null || v === undefined ? "--" : Number(v.toFixed(d)).toString();
+
+    const powerElbow = activeSide === "right" ? m.elbowAngleDeg.right : m.elbowAngleDeg.left;
+    const topElbow = activeSide === "right" ? m.elbowAngleDeg.left : m.elbowAngleDeg.right;
+
+    return [
+      // 1. 肩髋协调（是否转髋）
+      {
+        title: "肩髋协调",
+        value: fv(m.shoulderHipProjectedAngleDiffDeg, 1) + "°",
+        comment: m.shoulderHipProjectedAngleDiffDeg === null
+          ? "无法检测肩髋一致性"
+          : Math.abs(m.shoulderHipProjectedAngleDiffDeg) <= 6
+          ? "肩髋协调良好，转体稳定"
+          : Math.abs(m.shoulderHipProjectedAngleDiffDeg) <= 12
+          ? "肩髋配合有偏差，注意胸髋同步转动"
+          : "肩髋不一致，建议减少上半身错位",
+      },
+      // 2. 下支撑手肘（弯曲程度）
+      {
+        title: "下支撑手肘",
+        value: fv(powerElbow, 1) + "°",
+        comment: powerElbow === null
+          ? "无法检测"
+          : powerElbow > 165
+          ? "下手肘过直，建议保持轻微弯曲"
+          : powerElbow >= 145
+          ? "下手肘角度适中，保持支撑稳定"
+          : "下手肘屈曲较大，注意稳定支撑",
+      },
+      // 3. 上支撑手肘（NEW）
+      {
+        title: "上支撑手肘",
+        value: fv(topElbow, 1) + "°",
+        comment: topElbow === null
+          ? "无法检测"
+          : topElbow > 170
+          ? "上手肘接近伸直，上半身较舒展"
+          : topElbow >= 140
+          ? "上手肘角度适中，保持稳定"
+          : "上手肘屈曲较大，注意举臂高度",
+      },
+      // 4. 上下手垂直差（NEW）
+      {
+        title: "上下手垂直差",
+        value: m.topPowerVerticalOffsetRatio !== null
+          ? fv(m.topPowerVerticalOffsetRatio, 2) + "×肩" : "--",
+        comment: m.topPowerVerticalOffsetRatio === null
+          ? "无法检测"
+          : m.topPowerVerticalOffsetRatio >= 1.5
+          ? "上下手间距充足，桨杆握距合适"
+          : m.topPowerVerticalOffsetRatio >= 0.8
+          ? "上下手间距适中"
+          : "上下手垂直距离偏小，注意伸直上手",
+      },
+      // 5. 膝部姿势
+      {
+        title: "膝部姿势",
+        value: m.kneeAngleDeg.left !== null && m.kneeAngleDeg.right !== null
+          ? fv((m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2, 1) + "°" : "--",
+        comment: m.kneeAngleDeg.left === null || m.kneeAngleDeg.right === null
+          ? "无法检测双膝角度"
+          : (m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2 > 170
+          ? "膝盖接近伸直，建议轻微弯曲以缓冲"
+          : "膝部角度良好，保持稳定",
+      },
+      // 6. 下手运动方向（替代桨角度）
+      {
+        title: "下手拉桨方向",
+        value: m.powerWristRelativeDirectionDeg !== null
+          ? fv(Math.abs(m.powerWristRelativeDirectionDeg), 1) + "°"
+          : "--",
+        comment: m.powerWristRelativeDirectionDeg === null
+          ? "静止或速度过低，无法判断方向"
+          : (Math.abs(m.powerWristRelativeDirectionDeg) >= 45 && Math.abs(m.powerWristRelativeDirectionDeg) <= 135)
+          ? "下手向后拉桨方向合理，沿躯干方向运动"
+          : "下手拉桨方向偏斜较大，注意沿直线向后拉",
+      },
+      // 7. 躯干侧倾
+      {
+        title: "躯干侧倾",
+        value: fv(m.torsoLeanDeg, 1) + "°",
+        comment: m.torsoLeanDeg === null
+          ? "无法检测"
+          : Math.abs(m.torsoLeanDeg) <= 8
+          ? "躯干侧倾正常，保持稳定"
+          : "侧倾较大，建议保持躯干正直",
+      },
+      // 8. 身体稳定性
+      {
+        title: "身体稳定性",
+        value: m.bodyCenterVerticalDisplacement !== null
+          ? fv(m.bodyCenterVerticalDisplacement, 4) + "×肩" : "--",
+        comment: m.bodyCenterVerticalDisplacement === null
+          ? "校准未完成"
+          : Math.abs(m.bodyCenterVerticalDisplacement) <= 0.02
+          ? "身体重心稳定，划行姿态好"
+          : "身体重心起伏较大，注意减少上下晃动",
+      },
+    ];
+  }, []);
+
   const handleStopCamera = useCallback(() => {
     isRunningRef.current = false;
     resetSmoothing();
     resetMetrics();
-    resetStickState();
-    resetMarkerState();
-    resetPostureState();
-    clearStabilityHistory();
+    if (FEATURE_FLAGS.V2_STICK_DETECTION) {
+      resetStickState();
+      resetMarkerState();
+    }
+    if (FEATURE_FLAGS.V3_POSTURE_ANALYSIS) {
+      resetPostureState();
+      clearStabilityHistory();
+    }
+    strokeTrackerRef.current?.resetAll();
+    setStrokeMetrics(null);
+    setCalibrationStatus("uncalibrated");
+    setDetectedStrokeSide(null);
+    detectedStrokeSideRef.current = null;
+    // 保留已生成的 sessionReportData/报告，不在停止摄像头时清除，便于用户查看
     markerRedRef.current = null;
     markerBlueRef.current = null;
     markerValidRef.current = false;
@@ -473,7 +811,6 @@ function App() {
     statusRef.current = "摄像头未启动";
     setStatus("摄像头未启动");
 
-    // 清空 canvas
     const canvas = canvasRef.current;
     if (canvas) {
       const ctx = canvas.getContext("2d");
@@ -481,28 +818,106 @@ function App() {
     }
   }, []);
 
+  const handleRecalibrate = useCallback(() => {
+    strokeTrackerRef.current?.calibrator.reset();
+    setCalibrationStatus("uncalibrated");
+  }, []);
+
+  // ================================================================
+  // 渲染辅助
+  // ================================================================
+
+  const calStatusText = (cs: CalibrationStatus): string => {
+    if (cs === "uncalibrated") return "未校准";
+    if (cs === "ready") return "已校准";
+    return `校准中 ${cs.current}/${cs.target}`;
+  };
+
+  const inferStrokeSide = (landmarks: NormalizedLandmark[]): StrokeSide | null => {
+    const lw = landmarks[15];
+    const rw = landmarks[16];
+    if (!lw || !rw) return null;
+    if ((lw.visibility ?? 0) < 0.5 || (rw.visibility ?? 0) < 0.5) return null;
+    const yDiff = rw.y - lw.y;
+    if (Math.abs(yDiff) < 0.03) return null;
+    return yDiff > 0 ? "right" : "left";
+  };
+
+  const f = (v: number | null | undefined, decimals = 2): string => {
+    if (v === null || v === undefined) return "--";
+    return Number(v.toFixed(decimals)).toString();
+  };
+
+  const fm = (v: number | null | undefined, decimals = 2): string => {
+    if (v === null || v === undefined) return "--";
+    const val = Number(v.toFixed(decimals));
+    if (val > 0) return `+${val}`;
+    return val.toString();
+  };
+
+  const sm = strokeMetrics;
+
+  const activeStrokeSide = detectedStrokeSide ?? selectedStrokeSide;
+
+  const paddleAngleDisplay =
+    stickAngleStr !== "--"
+      ? stickAngleStr
+      : sm?.powerWristRelativeDirectionDeg !== null && sm?.powerWristRelativeDirectionDeg !== undefined
+      ? `${f(Math.abs(sm.powerWristRelativeDirectionDeg), 1)}°`
+      : "--";
+
+  const sessionCountdownText =
+    !isCameraOn
+      ? "请先启动摄像头并开始划形"
+      : sessionReportReady
+      ? "报告已生成，可查看下面评估"
+      : `请持续划形 15s，剩余 ${15 - sessionSeconds}s`;
+
+  const sideDisplayText = detectedStrokeSide
+    ? detectedStrokeSide === "right"
+      ? "当前检测为右桨"
+      : "当前检测为左桨"
+    : "正在自动识别划侧...";
+
+  const canStartTest =
+    status === "人体识别正常" &&
+    metricsLean !== null &&
+    metricsHandRatio !== null &&
+    (FEATURE_FLAGS.V3_POSTURE_ANALYSIS ? posturePhase === "active" : true) &&
+    calibrationStatus === "ready";
+
+  const reportItems = sm
+    ? buildReportItems(sm, activeStrokeSide)
+    : [];
+
+  const compactActionHint =
+    !isCameraOn
+      ? "请先启动摄像头"
+      : status === "未检测到人体"
+      ? "请进入画面，确保全身可见"
+      : calibrationStatus !== "ready"
+      ? "请先完成站姿校准"
+      : sm?.powerWristRelativeCompositeSpeed !== null && sm?.powerWristRelativeCompositeSpeed !== undefined
+      ? sm.powerWristRelativeCompositeSpeed > 1.5
+        ? "动作节奏稳定，继续保持"
+        : "请注意下手合速度，适当加快"
+      : "等待检测结果";
+
   // ================================================================
   // 渲染
   // ================================================================
 
   return (
     <div className="app">
-      {/* 标题 */}
       <h1 className="app-title">桨板直线划行 AI 陪练</h1>
 
-      {/* 说明 */}
       <p className="app-description">
         请将设备放在身体正前方，并确保全身完整进入画面
       </p>
 
-      {/* 控制按钮 */}
       <div className="controls">
         {!isCameraOn ? (
-          <button
-            className="btn btn-start"
-            onClick={handleStartCamera}
-            disabled={!modelReady}
-          >
+          <button className="btn btn-start" onClick={handleStartCamera} disabled={!modelReady}>
             启动摄像头
           </button>
         ) : (
@@ -512,27 +927,127 @@ function App() {
         )}
       </div>
 
-      {/* 隐私提示 */}
       <p className="privacy-notice">
         摄像头画面仅在当前设备浏览器中实时处理，不会上传或保存。
       </p>
 
-      {/* 视频与 Canvas 叠加区域 */}
-      <div className={`video-wrapper ${isCameraOn ? "mirrored" : ""}`}>
-        <video ref={videoRef} playsInline />
-        <canvas ref={canvasRef} className="pose-canvas" />
-      </div>
+      <div className="session-layout">
+        <div className="video-column">
+          <div className={`video-wrapper ${isCameraOn ? "mirrored" : ""}`}>
+            <video ref={videoRef} playsInline />
+            <canvas ref={canvasRef} className="pose-canvas" />
+          </div>
 
-      {/* 状态与 FPS */}
-      <div className="status-bar">
-        <div className="status-indicator">
-          <span className={`status-dot ${STATUS_DOT_CLASS[status]}`} />
-          <span>{status}</span>
+          <div className="status-bar">
+            <div className="status-indicator">
+              <span className={`status-dot ${STATUS_DOT_CLASS[status]}`} />
+              <span>{status}</span>
+            </div>
+            {isCameraOn && <div className="fps-display">FPS: {fps}</div>}
+          </div>
         </div>
-        {isCameraOn && <div className="fps-display">FPS: {fps}</div>}
-      </div>
 
-      {/* ---- V1 基础动作指标 ---- */}
+        <div className="sidebar">
+          <div className="session-card">
+            <div className="session-card-title">开始划形评估</div>
+            <div className="session-card-body">
+              <div className="session-card-row">{sessionCountdownText}</div>
+              <div className="session-card-row">{detectedStrokeSide ? "自动识别成功" : "正在判断划侧"}</div>
+              <div style={{ marginTop: 10 }}>
+                <button
+                  className="btn btn-start"
+                  onClick={handleStartTest}
+                  disabled={!isCameraOn || !canStartTest}
+                  title={!canStartTest ? "请确保入镜、四肢/站姿识别及校准完成后再开始" : "开始 15s 测试"}
+                >
+                  开始测试
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {sessionReportReady && (
+            <div className="report-panel">
+              <div className="metrics-title">📋 动作检测报告</div>
+              <div className="report-score">
+                {sessionReportData && sessionReportData.score !== null ? (
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#00ff88' }}>得分：{sessionReportData.score} / 100</div>
+                ) : null}
+              </div>
+              <div className="report-list">
+                {((sessionReportData && sessionReportData.items.length === 0) || (!sessionReportData && reportItems.length === 0)) ? (
+                  <div className="report-note">等待更多检测数据...</div>
+                ) : (
+                  (sessionReportData ? sessionReportData.items : reportItems).map((item) => (
+                    <div key={item.title} className="report-item">
+                      <div className="report-item-title">{item.title}</div>
+                      <div className="report-item-value">{item.value}</div>
+                      <div className="report-item-comment">{item.comment}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                <button className="btn btn-small" onClick={() => { setSessionReportData(null); setSessionReportReady(false); }}>清除报告</button>
+                <button className="btn btn-small" onClick={() => { /* 重新测试：开启摄像头已经在 */ handleStartTest(); }}>重新测试</button>
+              </div>
+            </div>
+          )}
+
+          {/* 调试面板（折叠/展开） */}
+          <div className="debug-panel">
+            <div className="debug-header">
+              <span className="metrics-title">🧾 调试面板</span>
+              <button className="btn btn-small" onClick={() => setDebugOpen((s) => !s)}>
+                {debugOpen ? '折叠' : '展开'}
+              </button>
+            </div>
+            {debugOpen && (
+              <div className="debug-body">
+                <div className="debug-keys">
+                  <div>pose 有效: {status === '人体识别正常' ? '是' : '否'}</div>
+                  <div>stick/paddle 检测: {markerValidRef.current ? '是' : stickStatusRef.current === '杆体识别正常' ? '是' : '否'}</div>
+                  <div>stroke phase: {posturePhase}</div>
+                  <div>hands distance 有效: {metricsHandRatio !== null ? '是' : '否'}</div>
+                  <div>trunk angle 有效: {metricsLean !== null ? '是' : '否'}</div>
+                  <div>paddle vertical angle 有效: {paddleAngleDisplay !== '--' ? '是' : '否'}</div>
+                  <div>哪些字段为 null: {(() => {
+                    const nulls: string[] = [];
+                    if (metricsHandRatio === null) nulls.push('handSpanRatio');
+                    if (metricsLean === null) nulls.push('torsoLeanDeg');
+                    if (!sm) nulls.push('strokeMetrics');
+                    if (stickAngleRef.current === null) nulls.push('stickAngle');
+                    return nulls.length ? nulls.join(', ') : '无';
+                  })()}</div>
+                </div>
+
+                <div className="debug-json">
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ fontWeight: 600 }}>最近一帧 Debug JSON</div>
+                    <button
+                      className="btn btn-small"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(lastDebugText);
+                        } catch (e) {
+                          const ta = document.createElement('textarea');
+                          ta.value = lastDebugText;
+                          document.body.appendChild(ta);
+                          ta.select();
+                          document.execCommand('copy');
+                          document.body.removeChild(ta);
+                        }
+                      }}
+                    >复制</button>
+                  </div>
+                  <pre className="debug-pre">{lastDebugText}</pre>
+                </div>
+              </div>
+            )}
+          </div>
+
+        
+
       {isCameraOn && (
         <div className="metrics-panel">
           <div className="metrics-title">📐 基础动作指标</div>
@@ -554,17 +1069,15 @@ function App() {
             <div className="metric-item">
               <span className="metric-label">双手间距</span>
               <span className="metric-value">
-                {metricsHandRatio !== null
-                  ? `${metricsHandRatio.toFixed(2)} 倍肩宽`
-                  : "--"}
+                {metricsHandRatio !== null ? `${metricsHandRatio.toFixed(2)} 倍肩宽` : "--"}
               </span>
             </div>
           </div>
         </div>
       )}
 
-      {/* ---- V2 杆体识别 ---- */}
-      {isCameraOn && (
+      {/* ---- V2 杆体识别（FEATURE_FLAGS 控制）---- */}
+      {FEATURE_FLAGS.V2_STICK_DETECTION && isCameraOn && (
         <div className="metrics-panel">
           <div className="metrics-title">🪵 杆体识别</div>
           <div className="metrics-grid">
@@ -586,8 +1099,8 @@ function App() {
         </div>
       )}
 
-      {/* ---- V3 静态握桨姿势 ---- */}
-      {isCameraOn && (
+      {/* ---- V3 静态握桨姿势（FEATURE_FLAGS 控制）---- */}
+      {FEATURE_FLAGS.V3_POSTURE_ANALYSIS && isCameraOn && (
         <div className="metrics-panel">
           <div className="metrics-title">🧘 静态握桨姿势</div>
           <div className="metrics-grid">
@@ -618,25 +1131,19 @@ function App() {
                 <div className="metric-item">
                   <span className="metric-label">双手间距</span>
                   <span className="metric-value">
-                    {metricsHandRatio !== null
-                      ? `${metricsHandRatio.toFixed(2)} 倍肩宽`
-                      : "--"}
+                    {metricsHandRatio !== null ? `${metricsHandRatio.toFixed(2)} 倍肩宽` : "--"}
                   </span>
                 </div>
                 <div className="metric-item">
                   <span className="metric-label">左手距杆体</span>
                   <span className="metric-value">
-                    {wristDist
-                      ? `${wristDist.leftRatio.toFixed(2)} 倍肩宽（${wristDist.leftStatus}）`
-                      : "--"}
+                    {wristDist ? `${wristDist.leftRatio.toFixed(2)} 倍肩宽（${wristDist.leftStatus}）` : "--"}
                   </span>
                 </div>
                 <div className="metric-item">
                   <span className="metric-label">右手距杆体</span>
                   <span className="metric-value">
-                    {wristDist
-                      ? `${wristDist.rightRatio.toFixed(2)} 倍肩宽（${wristDist.rightStatus}）`
-                      : "--"}
+                    {wristDist ? `${wristDist.rightRatio.toFixed(2)} 倍肩宽（${wristDist.rightStatus}）` : "--"}
                   </span>
                 </div>
               </>
@@ -644,6 +1151,177 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* ================================================================
+          V4.1 侧选 + 划桨动作指标
+          ================================================================ */}
+      {FEATURE_FLAGS.V4_STROKE_ANALYSIS && isCameraOn && (
+        <>
+          {/* 自动划桨侧检测 + 校准 */}
+          <div className="metrics-panel">
+            <div className="metrics-title">🏃 划桨动作指标</div>
+            <div className="stroke-side-display">
+              <span className="metric-label">当前检测划侧：</span>
+              <span className="metric-value">{sideDisplayText}</span>
+            </div>
+            <div className="stroke-tip">
+              自动识别上下手位置，无需手动选择桨侧。
+            </div>
+            <div className="stroke-calibration">
+              <span className="metric-label">站姿校准：</span>
+              <span className={`metric-value ${calibrationStatus === "ready" ? "status-ok" : "status-warn"}`}>
+                {calStatusText(calibrationStatus)}
+              </span>
+              <button className="btn btn-small" onClick={handleRecalibrate}>
+                重新校准
+              </button>
+            </div>
+          </div>
+
+          {/* 简洁指标面板 */}
+          <div className="metrics-panel metrics-panel-compact">
+            <div className="metrics-title">🏃 关键划桨指标</div>
+            <div className="metrics-grid stroke-grid compact-grid">
+              <div className="metric-item">
+                <span className="metric-label">入镜状态</span>
+                <span className="metric-value">
+                  {status === "人体识别正常"
+                    ? "已入镜"
+                    : status === "未检测到人体"
+                    ? "请进入画面"
+                    : status}
+                </span>
+              </div>
+              <div className="metric-item">
+                <span className="metric-label">躯干侧倾</span>
+                <span className="metric-value">{f(sm?.torsoLeanDeg, 1)}°</span>
+              </div>
+              <div className="metric-item">
+                <span className="metric-label">双手/肩宽</span>
+                <span className="metric-value">{f(sm?.handSpanRatio, 2)}×肩</span>
+              </div>
+              <div className="metric-item">
+                <span className="metric-label">桨/木棍角度</span>
+                <span className="metric-value">{paddleAngleDisplay}</span>
+              </div>
+              <div className="metric-item metric-item-full">
+                <span className="metric-label">动作提示</span>
+                <span className="metric-value">{compactActionHint}</span>
+              </div>
+            </div>
+            <button
+              className="btn btn-small btn-toggle"
+              onClick={() => setShowAdvancedMetrics((prev) => !prev)}
+            >
+              {showAdvancedMetrics ? "隐藏更多指标" : "查看更多指标"}
+            </button>
+          </div>
+
+          {showAdvancedMetrics && (
+            <>
+              <div className="metrics-panel metrics-panel-advanced">
+                <div className="metrics-grid stroke-grid">
+                  {/* 角度 */}
+                  <div className="metric-item">
+                    <span className="metric-label">左肘角</span>
+                    <span className="metric-value">{f(sm?.elbowAngleDeg.left, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">右肘角</span>
+                    <span className="metric-value">{f(sm?.elbowAngleDeg.right, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">左膝角</span>
+                    <span className="metric-value">{f(sm?.kneeAngleDeg.left, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">右膝角</span>
+                    <span className="metric-value">{f(sm?.kneeAngleDeg.right, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">躯干侧倾</span>
+                    <span className="metric-value">{f(sm?.torsoLeanDeg, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">肩线</span>
+                    <span className="metric-value">{f(sm?.shoulderLineAngleDeg, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">髋线</span>
+                    <span className="metric-value">{f(sm?.hipLineAngleDeg, 1)}°</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">肩髋投影差</span>
+                    <span className="metric-value">{f(sm?.shoulderHipProjectedAngleDiffDeg, 1)}°</span>
+                  </div>
+
+                  {/* 距离 */}
+                  <div className="metric-item">
+                    <span className="metric-label">手间距</span>
+                    <span className="metric-value">{f(sm?.handSpanRatio, 2)}×肩</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">上下手垂直</span>
+                    <span className="metric-value">{f(sm?.topPowerVerticalOffsetRatio, 2)}×肩</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">下手→肩</span>
+                    <span className="metric-value">({f(sm?.powerWristRelShoulder.x, 2)}, {f(sm?.powerWristRelShoulder.y, 2)})×肩</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">下手→髋</span>
+                    <span className="metric-value">({f(sm?.powerWristRelHip.x, 2)}, {f(sm?.powerWristRelHip.y, 2)})×肩</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">肩高度差</span>
+                    <span className="metric-value">{fm(sm?.shoulderHeightDiff, 3)}×肩</span>
+                  </div>
+
+                  {/* 速度 */}
+                  <div className="metric-item">
+                    <span className="metric-label">下手水平速度</span>
+                    <span className="metric-value">{f(sm?.powerWristRelativeHorizontalVelocity, 2)}/s</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">下手垂直速度</span>
+                    <span className="metric-value">{f(sm?.powerWristRelativeVerticalVelocity, 2)}/s</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">下手合速度</span>
+                    <span className="metric-value">{f(sm?.powerWristRelativeCompositeSpeed, 2)}/s</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">下手方向</span>
+                    <span className="metric-value">{sm !== null && sm.powerWristRelativeDirectionDeg !== null ? `${f(sm.powerWristRelativeDirectionDeg, 1)}°` : "--"}</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">手间距速度</span>
+                    <span className="metric-value">{f(sm?.handSpanVelocity, 3)}/s</span>
+                  </div>
+
+                  {/* 身体中心 */}
+                  <div className="metric-item">
+                    <span className="metric-label">身体中心位移</span>
+                    <span className="metric-value">{fm(sm?.bodyCenterVerticalDisplacement, 4)}×肩</span>
+                  </div>
+                  <div className="metric-item">
+                    <span className="metric-label">身体中心速度</span>
+                    <span className="metric-value">{fm(sm?.bodyCenterVerticalVelocity, 4)}/s</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Debug 提示 */}
+              <div className="debug-hint">
+                按 <kbd>D</kbd> 导出调试 JSON（最多 300 帧，不含图像）
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      </div>
+      </div>
 
       {/* 错误提示 */}
       {errorMessage && <div className="error-msg">{errorMessage}</div>}

@@ -517,6 +517,12 @@
   margin-left: auto;
 }
 
+.stroke-side-hint {
+  font-size: 0.75rem;
+  color: #505070;
+  margin-left: 8px;
+}
+
 .stroke-calibration {
   display: flex;
   align-items: center;
@@ -539,6 +545,24 @@
   border-color: #00d4ff;
   color: #00d4ff;
 }
+
+/* ---- V4.2 阶段状态显示 ---- */
+.stroke-phase-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.phase-pause { color: #808090; }
+.phase-ready { color: #ffaa00; }
+.phase-pull { color: #00ff88; }
+.phase-push { color: #00d4ff; }
+.phase-recovery { color: #ff66aa; }
 
 /* 指标 2 列网格 */
 .stroke-grid {

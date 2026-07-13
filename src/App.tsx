@@ -57,7 +57,8 @@ import { FEATURE_FLAGS } from "./featureFlags";
 import { getStrokeRoles } from "./bodyStroke/bodyStrokeRoles";
 import { computeStrokeMetrics } from "./bodyStroke/bodyStrokeMetrics";
 import { StrokeTracker } from "./bodyStroke/bodyStrokeTracker";
-import type { BodyStrokeMetrics, StrokeSide, CalibrationStatus } from "./bodyStroke/bodyStrokeTypes";
+import { StrokePhaseMachine } from "./bodyStroke/bodyStrokePhases";
+import type { BodyStrokeMetrics, StrokeSide, CalibrationStatus, PhaseState, StrokePhase } from "./bodyStroke/bodyStrokeTypes";
 import "./App.css";
 
 /** 应用状态类型 */
@@ -117,7 +118,7 @@ function App() {
   const [wristDist, setWristDist] = useState<WristStickResult | null>(null);
 
   // ---- V4.1 状态 ----
-  const [selectedStrokeSide] = useState<StrokeSide>("right");
+  const [selectedStrokeSide, setSelectedStrokeSide] = useState<StrokeSide>("right");
   const [detectedStrokeSide, setDetectedStrokeSide] = useState<StrokeSide | null>(null);
   const [strokeMetrics, setStrokeMetrics] = useState<BodyStrokeMetrics | null>(null);
   const [calibrationStatus, setCalibrationStatus] = useState<CalibrationStatus>("uncalibrated");
@@ -136,6 +137,10 @@ function App() {
   const lastDebugRef = useRef<any>(null);
   const [lastDebugText, setLastDebugText] = useState<string>("{}");
   const latestStrokeMetricsRef = useRef<BodyStrokeMetrics | null>(null);
+
+  // ---- V4.2 状态 ----
+  const [phaseState, setPhaseState] = useState<PhaseState | null>(null);
+  const phaseMachineRef = useRef<StrokePhaseMachine | null>(null);
 
   // 同步 ref
   useEffect(() => {
@@ -184,9 +189,12 @@ function App() {
   // ================================================================
   useEffect(() => {
     strokeTrackerRef.current = new StrokeTracker();
+    phaseMachineRef.current = new StrokePhaseMachine();
     return () => {
       strokeTrackerRef.current?.resetAll();
-    strokeTrackerRef.current = null;
+	      phaseMachineRef.current?.reset();
+      strokeTrackerRef.current = null;
+      phaseMachineRef.current = null;
     };
   }, []);
 
@@ -367,11 +375,8 @@ function App() {
               const prevTs = strokeTrackerRef.current
                 ? (strokeTrackerRef.current as any)._prevTimestamp
                 : now;
-              const inferredSide = inferStrokeSide(rawLandmarks);
-              if (inferredSide && inferredSide !== detectedStrokeSideRef.current) {
-                setDetectedStrokeSide(inferredSide);
-              }
-              const side = detectedStrokeSideRef.current ?? selectedSideRef.current;
+              // 使用用户手动选择的划桨侧
+              const side = selectedSideRef.current;
               const roles = getStrokeRoles(side);
               const raw = computeStrokeMetrics(
                 rawLandmarks, roles, now, ct,
@@ -384,6 +389,15 @@ function App() {
               // 校准状态同步到 UI
               const calStatus = strokeTrackerRef.current!.calibrationStatus;
               setCalibrationStatus(calStatus);
+
+              // V4.2 阶段状态机更新
+              if (phaseMachineRef.current) {
+                const activeSide = detectedStrokeSideRef.current ?? selectedSideRef.current;
+                const ps = phaseMachineRef.current.update(smoothed, now, activeSide);
+                if (ps.justTransitioned || phaseState?.phase !== ps.phase) {
+                  setPhaseState(ps);
+                }
+              }
             }
           }
         } catch (err) {
@@ -449,18 +463,55 @@ function App() {
 
   useEffect(() => {
     if (!isCameraOn || sessionStartedAt === null) return;
+    const activeScores: number[] = [];
+    let maxActiveSpeed = 0;
     const id = window.setInterval(() => {
       const elapsedSeconds = Math.floor((performance.now() - sessionStartedAt) / 1000);
       setSessionSeconds(Math.min(elapsedSeconds, 15));
+
+      // 只在拉桨/推桨阶段采集评分，静止/准备/暂停帧不计入
+      const phase = phaseMachineRef.current?.currentPhase;
+      const m = latestStrokeMetricsRef.current;
+      if (m && (phase === "pull" || phase === "push")) {
+        const s = computeSessionScore(m);
+        if (s !== null) activeScores.push(s);
+        if (m.powerWristRelativeCompositeSpeed !== null) {
+          maxActiveSpeed = Math.max(maxActiveSpeed, m.powerWristRelativeCompositeSpeed);
+        }
+      }
+
       if (elapsedSeconds >= 15) {
         clearInterval(id); // 冻结报告，不再覆盖
         setSessionReportReady(true);
-        // 从 ref 读取最新指标，避免闭包陈旧值
-        const m = latestStrokeMetricsRef.current;
-        const activeSide = detectedStrokeSideRef.current ?? selectedSideRef.current;
-        const score = m ? computeSessionScore(m) : null;
-        const items = m ? buildReportItems(m, activeSide) : [];
-        setSessionReportData({ items, score });
+        const activeSide = selectedSideRef.current;
+        const lastM = latestStrokeMetricsRef.current;
+        const items = lastM ? buildReportItems(lastM, activeSide) : [];
+        const strokeCount = phaseMachineRef.current?.strokeCount ?? 0;
+
+        // 综合评分 = 动作质量(60%) + 完成桨数(40%)
+        // 动作质量：拉桨/推桨阶段的指标平均分
+        // 完成桨数：每完成一桨 = 20分，5桨满分
+        let finalScore: number | null = null;
+        const qualityScore = activeScores.length > 0
+          ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
+          : 0;
+        const activityScore = Math.min(100, strokeCount * 20); // 每桨+20，5桨满分
+
+        if (strokeCount > 0) {
+          // 有完整划桨周期：质量60% + 活动量40%
+          finalScore = Math.round(qualityScore * 0.6 + activityScore * 0.4);
+        } else if (activeScores.length > 3) {
+          // 有动作但未成完整周期，给一个基础分
+          finalScore = Math.round(Math.min(55, qualityScore * 0.5 + 15));
+        } else {
+          // 基本没动，最高45分
+          finalScore = Math.min(45, qualityScore);
+        }
+
+        setSessionReportData({
+          items,
+          score: Math.max(0, Math.min(100, finalScore)),
+        });
       }
     }, 250);
     return () => window.clearInterval(id);
@@ -510,6 +561,7 @@ function App() {
         markerBlueRef.current = null;
         markerValidRef.current = false;
         strokeTrackerRef.current?.resetAll();
+	      phaseMachineRef.current?.reset();
         setStrokeMetrics(null);
         setCalibrationStatus("uncalibrated");
         const canvas = canvasRef.current;
@@ -541,6 +593,7 @@ function App() {
         clearStabilityHistory();
       }
       strokeTrackerRef.current?.resetAll();
+	      phaseMachineRef.current?.reset();
     };
   }, []);
 
@@ -584,6 +637,7 @@ function App() {
         clearStabilityHistory();
       }
       strokeTrackerRef.current?.resetAll();
+	      phaseMachineRef.current?.reset();
       setStrokeMetrics(null);
       setCalibrationStatus("uncalibrated");
       setDetectedStrokeSide(null);
@@ -630,6 +684,7 @@ function App() {
     strokeTrackerRef.current!._prevHandRatio = null;
     strokeTrackerRef.current!._prevHandRatioTime = -1;
     strokeTrackerRef.current!._prevTimestamp = -1;
+    phaseMachineRef.current?.reset();
     setStrokeMetrics(null);
     setSessionReportReady(false);
     setSessionSeconds(0);
@@ -641,34 +696,57 @@ function App() {
     const scores: number[] = [];
     const cap = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
 
+    // 1. 肩髋差：8-18° 是划桨转体的最佳范围
+    //    静止站姿 ~5-7° → ~70分；僵直 0° → 40分；过度 >25° → 逐渐降低
     if (smParam.shoulderHipProjectedAngleDiffDeg !== null) {
       const d = Math.abs(smParam.shoulderHipProjectedAngleDiffDeg);
-      scores.push(cap(100 - d * 3));
+      if (d >= 8 && d <= 18) scores.push(100);
+      else if (d < 3) scores.push(40);
+      else if (d < 8) scores.push(cap(40 + (d - 3) * 8));    // 3-8° 线性上升
+      else scores.push(Math.max(30, 100 - (d - 18) * 4));     // >18° 线性下降
     }
 
-    const activeElbow = (detectedStrokeSideRef.current ?? selectedSideRef.current) === 'right'
+    // 2. 下手肘角：120-150° 是拉桨时合理的弯曲范围
+    //    静止垂臂 ~175° → ~65分
+    const activeElbow = selectedSideRef.current === 'right'
       ? smParam.elbowAngleDeg.right
       : smParam.elbowAngleDeg.left;
     if (activeElbow !== null) {
-      const d = Math.abs(activeElbow - 155);
+      const d = Math.abs(activeElbow - 140);
       scores.push(cap(100 - d * 1.5));
     }
 
+    // 3. 膝角：155-175° 微屈最佳
     if (smParam.kneeAngleDeg.left !== null && smParam.kneeAngleDeg.right !== null) {
       const avg = (smParam.kneeAngleDeg.left + smParam.kneeAngleDeg.right) / 2;
       const d = Math.abs(avg - 165);
-      scores.push(cap(100 - d * 1.2));
+      scores.push(cap(100 - d * 1.5));
     }
 
-    if (smParam.powerWristRelativeDirectionDeg !== null) {
-      const a = Math.abs(smParam.powerWristRelativeDirectionDeg);
-      scores.push(cap(100 - a * 2.5));
+    // 4. 运动状态：是否在主动划桨（关键区分项）
+    //    方向也为空说明手腕不可见/未运动 → 30分
+    //    不运动 → 40分；低速 → 60分；正常划桨 → 90分
+    const speed = smParam.powerWristRelativeCompositeSpeed;
+    const dir = smParam.powerWristRelativeDirectionDeg;
+    if (speed !== null) {
+      if (speed > 0.8) scores.push(90);
+      else if (speed > 0.3) scores.push(60);
+      else scores.push(40);
+    } else if (dir === null) {
+      scores.push(30); // 未检测到运动——既无速度也无方向
     }
 
+    // 5. 躯干侧倾：≤6°优秀，≤10°可接受
     if (smParam.torsoLeanDeg !== null) {
       const lean = Math.abs(smParam.torsoLeanDeg);
-      const v = lean <= 8 ? 100 : Math.max(0, 100 - (lean - 8) * 5);
+      const v = lean <= 6 ? 100 : Math.max(0, 100 - (lean - 6) * 6);
       scores.push(cap(v));
+    }
+
+    // 6. 身体稳定性：动作中重心稳定加分
+    if (smParam.bodyCenterVerticalDisplacement !== null) {
+      const d = Math.abs(smParam.bodyCenterVerticalDisplacement);
+      scores.push(d <= 0.015 ? 100 : Math.max(0, 100 - (d - 0.015) * 800));
     }
 
     if (scores.length === 0) return null;
@@ -797,6 +875,7 @@ function App() {
       clearStabilityHistory();
     }
     strokeTrackerRef.current?.resetAll();
+	      phaseMachineRef.current?.reset();
     setStrokeMetrics(null);
     setCalibrationStatus("uncalibrated");
     setDetectedStrokeSide(null);
@@ -833,14 +912,14 @@ function App() {
     return `校准中 ${cs.current}/${cs.target}`;
   };
 
-  const inferStrokeSide = (landmarks: NormalizedLandmark[]): StrokeSide | null => {
-    const lw = landmarks[15];
-    const rw = landmarks[16];
-    if (!lw || !rw) return null;
-    if ((lw.visibility ?? 0) < 0.5 || (rw.visibility ?? 0) < 0.5) return null;
-    const yDiff = rw.y - lw.y;
-    if (Math.abs(yDiff) < 0.03) return null;
-    return yDiff > 0 ? "right" : "left";
+  const phaseLabel = (p: StrokePhase): string => {
+    switch (p) {
+      case "pause": return "⏸ 暂停";
+      case "ready": return "🏁 准备";
+      case "pull": return "⬇ 拉桨";
+      case "push": return "⬆ 推桨";
+      case "recovery": return "↻ 恢复";
+    }
   };
 
   const f = (v: number | null | undefined, decimals = 2): string => {
@@ -857,7 +936,7 @@ function App() {
 
   const sm = strokeMetrics;
 
-  const activeStrokeSide = detectedStrokeSide ?? selectedStrokeSide;
+  const activeStrokeSide = selectedStrokeSide;
 
   const paddleAngleDisplay =
     stickAngleStr !== "--"
@@ -873,11 +952,10 @@ function App() {
       ? "报告已生成，可查看下面评估"
       : `请持续划形 15s，剩余 ${15 - sessionSeconds}s`;
 
-  const sideDisplayText = detectedStrokeSide
-    ? detectedStrokeSide === "right"
-      ? "当前检测为右桨"
-      : "当前检测为左桨"
-    : "正在自动识别划侧...";
+
+  const reportItems = sm
+    ? buildReportItems(sm, activeStrokeSide)
+    : [];
 
   const canStartTest =
     status === "人体识别正常" &&
@@ -885,10 +963,6 @@ function App() {
     metricsHandRatio !== null &&
     (FEATURE_FLAGS.V3_POSTURE_ANALYSIS ? posturePhase === "active" : true) &&
     calibrationStatus === "ready";
-
-  const reportItems = sm
-    ? buildReportItems(sm, activeStrokeSide)
-    : [];
 
   const compactActionHint =
     !isCameraOn
@@ -1160,12 +1234,23 @@ function App() {
           {/* 自动划桨侧检测 + 校准 */}
           <div className="metrics-panel">
             <div className="metrics-title">🏃 划桨动作指标</div>
-            <div className="stroke-side-display">
-              <span className="metric-label">当前检测划侧：</span>
-              <span className="metric-value">{sideDisplayText}</span>
-            </div>
-            <div className="stroke-tip">
-              自动识别上下手位置，无需手动选择桨侧。
+            <div className="stroke-side-selector">
+              <span className="metric-label">划桨侧：</span>
+              <button
+                className={`btn-side ${selectedStrokeSide === "right" ? "btn-side-active" : ""}`}
+                onClick={() => setSelectedStrokeSide("right")}
+              >
+                右桨
+              </button>
+              <button
+                className={`btn-side ${selectedStrokeSide === "left" ? "btn-side-active" : ""}`}
+                onClick={() => setSelectedStrokeSide("left")}
+              >
+                左桨
+              </button>
+              <span className="stroke-side-hint">
+                请选择与手持木棍一致的一侧
+              </span>
             </div>
             <div className="stroke-calibration">
               <span className="metric-label">站姿校准：</span>
@@ -1176,6 +1261,17 @@ function App() {
                 重新校准
               </button>
             </div>
+            {/* V4.2 阶段状态 */}
+            {phaseState && (
+              <div className="stroke-phase-display">
+                <span className="metric-label">动作阶段：</span>
+                <span className={`metric-value phase-${phaseState.phase}`}>
+                  {phaseLabel(phaseState.phase)}
+                </span>
+                <span className="metric-label" style={{ marginLeft: 12 }}>划桨计数：</span>
+                <span className="metric-value">{phaseState.strokeCount}</span>
+              </div>
+            )}
           </div>
 
           {/* 简洁指标面板 */}

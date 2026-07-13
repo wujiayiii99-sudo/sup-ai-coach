@@ -200,3 +200,30 @@ export interface DebugExport {
   frameCount: number;
   frames: DebugFrameEntry[];
 }
+
+// ================================================================
+// V4.2 划桨阶段
+// ================================================================
+
+/** 五阶段划桨状态 */
+export type StrokePhase =
+  | "ready"
+  | "pull"
+  | "push"
+  | "recovery"
+  | "pause";
+
+/** 阶段状态机输出 */
+export interface PhaseState {
+  phase: StrokePhase;
+  /** 当前相位持续时长（ms） */
+  durationMs: number;
+  /** 是否刚完成相位切换 */
+  justTransitioned: boolean;
+  /** 该阶段置信度 [0,1] */
+  confidence: number;
+  /** 相位开始时间戳 */
+  phaseStartTime: number;
+  /** 完整动作周期计数 */
+  strokeCount: number;
+}

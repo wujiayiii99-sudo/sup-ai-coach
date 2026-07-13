@@ -30,6 +30,31 @@
 - 新增 3 项报告指标：上支撑手肘、上下手垂直差、身体稳定性
 - 新增 `buildReportItems(m, activeSide)` 函数，可在渲染和计时器中复用
 
+### V4.2 五阶段划桨状态机（编码完成，通过方向驱动回测）
+1. **设计文档** — `V4_2_DESIGN.md` 架构设计（五阶段定义、信号映射、方向镜像处理）
+2. **新增 `bodyStrokePhases.ts`** — `StrokePhaseMachine` 类：
+   - 方向驱动状态机（pull→push→recovery→ready→pull 循环）
+   - 左右侧方向角镜像映射（`_getRanges()` 根据划桨侧自动取反）
+   - 时间基防抖（仿 V3 postureStabilizer）
+   - 划桨计数（strokeCount）
+3. **手动桨侧选择 UI** — 移除自动推断，改为「右桨 / 左桨」手动按钮，角色映射直接使用用户选择
+4. **评分重构** — `computeSessionScore` 改为：
+   - 仅拉桨/推桨阶段采分（排除静止帧）
+   - 评分 = 动作质量(60%) + 完成桨数(40%)
+   - 全程 60 次采样平均替代单帧快照
+5. **状态机集成** — App.tsx 每帧更新 phaseState，UI 显示动作阶段+划桨计数；重置路径同步 reset()
+6. **T3 数据回测** — 方向驱动机正确检测 4 个完整周期的切换
+
+### 本轮修改文件
+```
+新增: V4_2_DESIGN.md          — 状态机设计文档
+新增: src/bodyStroke/bodyStrokePhases.ts — 状态机实现
+修改: src/bodyStroke/bodyStrokeTypes.ts  — +PhaseState/StrokePhase类型
+修改: src/bodyStroke/bodyStrokeConfig.ts — +PHASE_CONFIG
+修改: src/App.tsx              — 状态机集成 + 手动侧选 + 全程评分
+修改: src/App.css              — 侧选按钮样式 + 阶段颜色
+```
+
 ---
 
 ## 会话 1 — 日期：2026年6月23日

@@ -127,3 +127,37 @@ export const METRICS_INFO: MetricInfo[] = [
   { id: "bodyCenterVel",       label: "身体中心速度",unit: "倍肩宽/秒", reliability: "medium" },
   { id: "shoulderHeightDiff",  label: "肩高度差", unit: "倍肩宽", reliability: "high" },
 ];
+
+// ================================================================
+// V4.2 划桨阶段状态机
+// ================================================================
+
+export const PHASE_CONFIG = {
+  /** 进入拉桨防抖（毫秒） */
+  pullEnterDebounceMs: 150,
+  /** 退出拉桨防抖 */
+  pullExitDebounceMs: 100,
+  /** 退出推桨防抖 */
+  pushExitDebounceMs: 80,
+  /** 推桨后强制进入恢复的时间上限 */
+  pushMaxDurationMs: 500,
+  /** 进入暂停所需静止时间 */
+  pauseEnterMs: 800,
+
+  /** 拉桨最低合速度（倍肩宽/秒） */
+  pullSpeedMin: 0.4,
+
+  /** 峰值速度下降比例 → 推桨 */
+  peakSpeedDropRatio: 0.3,
+  /** 恢复阶段最小时长 */
+  recoveryMinDuration: 400,
+  /** 暂停判定速度阈值 */
+  pauseSpeedThreshold: 0.2,
+
+  /** 拉桨方向角范围（右侧参考值） */
+  pullDirectionRange: [45, 135] as const,
+  /** 恢复方向角范围（右侧参考值） */
+  recoveryDirectionRange: [-135, -45] as const,
+  /** 方向变号最小变化 */
+  directionChangeMinDeg: 60,
+} as const;

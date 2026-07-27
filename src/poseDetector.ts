@@ -16,13 +16,11 @@ let lastVideoTime: number = -1;
 /** 最近一次推理结果缓存 */
 let lastResult: NormalizedLandmark[] | null = null;
 
-// 模型文件地址（MediaPipe 官方 CDN）
-const MODEL_URL =
-  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task";
+// 模型文件地址（自托管在 public/ 目录，避免依赖外网 CDN）
+const MODEL_URL = "/pose_landmarker_lite.task";
 
-// WASM 文件根目录
-const WASM_URL =
-  "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm/";
+// WASM 文件根目录（自托管在 public/wasm/ 目录）
+const WASM_URL = "/wasm/";
 
 /**
  * 初始化 Pose Landmarker 模型

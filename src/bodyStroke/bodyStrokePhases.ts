@@ -29,10 +29,6 @@ function startOk(t: Timer, now: number): void {
   t.failSince = 0;
 }
 
-function startFail(t: Timer, now: number): void {
-  t.failSince = t.failSince || now;
-}
-
 function resetTimer(t: Timer): void {
   t.okSince = 0;
   t.failSince = 0;
@@ -60,6 +56,11 @@ export class StrokePhaseMachine {
   private _phaseStartTime: number = 0;
   private _strokeCount: number = 0;
   private _pullPeakSpeed: number = 0;
+  private _pullStartX: number | null = null;
+  private _pullStartY: number | null = null;
+  private _pullMaxDisplacement: number = 0;
+  private _strokeArmed: boolean = false;
+  private _lastCountTime: number = Number.NEGATIVE_INFINITY;
   private _currentSide: StrokeSide = "right";
 
   // 时间基计数器
@@ -100,14 +101,19 @@ export class StrokePhaseMachine {
     side?: StrokeSide,
   ): PhaseState {
     if (side) this._currentSide = side;
+    if (this._phaseStartTime === 0) this._phaseStartTime = now;
 
     const speed = metrics.powerWristRelativeCompositeSpeed ?? 0;
     const direction = metrics.powerWristRelativeDirectionDeg;
+    const wristX = metrics.powerWristRelShoulder.x;
+    const wristY = metrics.powerWristRelShoulder.y;
     const ranges = this._getRanges();
     const directionInPull =
       direction !== null && isInRange(direction, ranges.pull);
+    const directionInRecovery =
+      direction !== null && isInRange(direction, ranges.recovery);
 
-const nowMs = now;
+    const nowMs = now;
     const cfg = PHASE_CONFIG;
 
     // ---- 状态切换 ----
@@ -117,15 +123,19 @@ const nowMs = now;
     switch (this._currentPhase) {
       // ── 暂停 ──
       case "pause": {
-        if (speed > cfg.pullSpeedMin) {
-          if (directionInPull) {
-            this._transitionTo("pull", nowMs);
+        if (speed > cfg.pullSpeedMin && directionInPull) {
+          startOk(this._pullTimer, nowMs);
+          if (okElapsed(this._pullTimer, nowMs) >= cfg.pullEnterDebounceMs) {
+            this._beginPull(wristX, wristY, speed, nowMs);
             newPhase = "pull";
-          } else {
-            this._transitionTo("ready", nowMs);
-            newPhase = "ready";
+            justTransitioned = true;
           }
+        } else if (speed > cfg.pauseSpeedThreshold) {
+          this._transitionTo("ready", nowMs);
+          newPhase = "ready";
           justTransitioned = true;
+        } else {
+          resetTimer(this._pullTimer);
         }
         break;
       }
@@ -135,12 +145,12 @@ const nowMs = now;
         if (speed > cfg.pullSpeedMin && directionInPull) {
           startOk(this._pullTimer, nowMs);
           if (okElapsed(this._pullTimer, nowMs) >= cfg.pullEnterDebounceMs) {
-            this._transitionTo("pull", nowMs);
+            this._beginPull(wristX, wristY, speed, nowMs);
             newPhase = "pull";
             justTransitioned = true;
           }
         } else {
-          startFail(this._pullTimer, nowMs);
+          resetTimer(this._pullTimer);
         }
 
         if (speed < cfg.pauseSpeedThreshold) {
@@ -151,65 +161,87 @@ const nowMs = now;
             justTransitioned = true;
           }
         } else {
-          startFail(this._pauseTimer, nowMs);
+          resetTimer(this._pauseTimer);
         }
         break;
       }
 
       // ── 拉桨 ──
       case "pull": {
+        this._updatePullDisplacement(wristX, wristY);
         if (speed > this._pullPeakSpeed) this._pullPeakSpeed = speed;
+        const pullDuration = nowMs - this._phaseStartTime;
 
-        // 方向离开拉桨范围 → 推桨（方向驱动，不依赖速度）
-        if (!directionInPull) {
+        if (pullDuration > cfg.pullMaxDurationMs) {
+          this._resetCycle();
+          this._transitionTo("ready", nowMs);
+          newPhase = "ready";
+          justTransitioned = true;
+          break;
+        }
+
+        // 持续离开拉桨方向或拉桨后明显减速，才进入出水/换向阶段。
+        const exitCandidate = !directionInPull || (
+          pullDuration >= cfg.pullMinDurationMs && speed < cfg.pauseSpeedThreshold
+        );
+        if (exitCandidate) {
           startOk(this._pushTimer, nowMs);
           if (okElapsed(this._pushTimer, nowMs) >= cfg.pullExitDebounceMs) {
+            this._strokeArmed = this._isPullValid(nowMs);
             this._transitionTo("push", nowMs);
             newPhase = "push";
             justTransitioned = true;
           }
         } else {
-          startFail(this._pushTimer, nowMs);
+          resetTimer(this._pushTimer);
         }
         break;
       }
 
       // ── 推桨 ──
       case "push": {
-        // 方向进入恢复范围 → 恢复（方向驱动）
-        if (direction !== null && isInRange(direction, ranges.recovery)) {
+        // 回桨方向连续成立后，确认本桨完成并立即计数。
+        if (directionInRecovery && speed >= cfg.pauseSpeedThreshold) {
           startOk(this._pushTimer, nowMs);
           if (okElapsed(this._pushTimer, nowMs) >= cfg.pushExitDebounceMs) {
+            this._countArmedStroke(nowMs);
             this._transitionTo("recovery", nowMs);
             newPhase = "recovery";
             justTransitioned = true;
           }
         } else {
-          // 超时强制进入恢复（防止卡死在推桨）
+          resetTimer(this._pushTimer);
           const pushDuration = nowMs - this._phaseStartTime;
-          if (pushDuration > cfg.pushMaxDurationMs) {
+          // 有效拉桨后手腕停下，视为完成出水；这样最后一桨无需等下一桨才计数。
+          if (this._strokeArmed && speed < cfg.pauseSpeedThreshold && pushDuration >= cfg.pullExitDebounceMs) {
+            this._countArmedStroke(nowMs);
+            this._transitionTo("recovery", nowMs);
+            newPhase = "recovery";
+            justTransitioned = true;
+          } else if (pushDuration > cfg.pushMaxDurationMs) {
+            this._countArmedStroke(nowMs);
             this._transitionTo("recovery", nowMs);
             newPhase = "recovery";
             justTransitioned = true;
           }
-          startFail(this._pushTimer, nowMs);
         }
         break;
       }
 
       // ── 恢复 ──
       case "recovery": {
-        // 下一桨：方向重新进入拉桨范围
-        if (directionInPull && speed > cfg.pullSpeedMin) {
+        const recoveryDuration = nowMs - this._phaseStartTime;
+
+        // 下一桨必须经过最短回桨时间，再连续进入拉桨方向。
+        if (recoveryDuration >= cfg.recoveryMinDurationMs && directionInPull && speed > cfg.pullSpeedMin) {
           startOk(this._pullTimer, nowMs);
           if (okElapsed(this._pullTimer, nowMs) >= cfg.pullEnterDebounceMs) {
-            this._strokeCount++;
-            this._transitionTo("ready", nowMs);
-            newPhase = "ready";
+            this._beginPull(wristX, wristY, speed, nowMs);
+            newPhase = "pull";
             justTransitioned = true;
           }
         } else {
-          startFail(this._pullTimer, nowMs);
+          resetTimer(this._pullTimer);
         }
 
         // 暂停
@@ -221,7 +253,14 @@ const nowMs = now;
             justTransitioned = true;
           }
         } else {
-          startFail(this._pauseTimer, nowMs);
+          resetTimer(this._pauseTimer);
+        }
+
+        if (recoveryDuration > cfg.maxCycleDurationMs) {
+          this._resetCycle();
+          this._transitionTo("pause", nowMs);
+          newPhase = "pause";
+          justTransitioned = true;
         }
         break;
       }
@@ -229,7 +268,7 @@ const nowMs = now;
     // _transitionTo 已记录 phaseStartTime，无需额外处理
 
     // ---- 置信度计算 ----
-    let confidence: number;
+    let confidence = 0;
     if (newPhase === "pause" || newPhase === "ready") {
       // 静止阶段：速度越低越确定
       confidence = Math.max(0, 1 - speed / cfg.pauseSpeedThreshold);
@@ -255,9 +294,69 @@ const nowMs = now;
     resetTimer(this._pullTimer);
     resetTimer(this._pushTimer);
     resetTimer(this._pauseTimer);
-    if (phase === "pull") {
-      this._pullPeakSpeed = 0;
+  }
+
+  private _beginPull(
+    wristX: number | null,
+    wristY: number | null,
+    speed: number,
+    now: number,
+  ): void {
+    this._resetCycle();
+    this._pullStartX = wristX;
+    this._pullStartY = wristY;
+    this._pullPeakSpeed = speed;
+    this._transitionTo("pull", now);
+  }
+
+  private _updatePullDisplacement(wristX: number | null, wristY: number | null): void {
+    if (wristX === null || wristY === null || this._pullStartX === null || this._pullStartY === null) return;
+    const dx = wristX - this._pullStartX;
+    const dy = wristY - this._pullStartY;
+    this._pullMaxDisplacement = Math.max(this._pullMaxDisplacement, Math.sqrt(dx * dx + dy * dy));
+  }
+
+  private _isPullValid(now: number): boolean {
+    const cfg = PHASE_CONFIG;
+    const duration = now - this._phaseStartTime;
+    return duration >= cfg.pullMinDurationMs &&
+      duration <= cfg.pullMaxDurationMs &&
+      this._pullPeakSpeed >= cfg.pullSpeedMin &&
+      this._pullMaxDisplacement >= cfg.pullMinDisplacement;
+  }
+
+  private _countArmedStroke(now: number): boolean {
+    if (!this._strokeArmed) return false;
+    if (now - this._lastCountTime < PHASE_CONFIG.strokeCooldownMs) {
+      this._strokeArmed = false;
+      return false;
     }
+    this._strokeCount++;
+    this._lastCountTime = now;
+    this._strokeArmed = false;
+    return true;
+  }
+
+  private _resetCycle(): void {
+    this._pullStartX = null;
+    this._pullStartY = null;
+    this._pullMaxDisplacement = 0;
+    this._pullPeakSpeed = 0;
+    this._strokeArmed = false;
+  }
+
+  /** 测试结束时补计已经完成有效拉桨、但尚未来得及进入回桨的最后一桨。 */
+  finalizePendingStroke(now: number): boolean {
+    if (this._currentPhase === "pull" && this._isPullValid(now)) {
+      this._strokeArmed = true;
+    }
+    const counted = this._countArmedStroke(now);
+    if (counted) {
+      // 将已补计的周期关闭，避免检测循环继续运行时再次计入同一桨。
+      this._resetCycle();
+      this._transitionTo("recovery", now);
+    }
+    return counted;
   }
 
   /** 重置所有状态 */
@@ -265,7 +364,8 @@ const nowMs = now;
     this._currentPhase = "pause";
     this._phaseStartTime = 0;
     this._strokeCount = 0;
-    this._pullPeakSpeed = 0;
+    this._lastCountTime = Number.NEGATIVE_INFINITY;
+    this._resetCycle();
     if (side) this._currentSide = side;
     resetTimer(this._pullTimer);
     resetTimer(this._pushTimer);

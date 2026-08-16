@@ -429,6 +429,11 @@ export class StrokeTracker {
   // 距离类
   readonly handSpanRatio_tracker = new ScalarTracker(SMOOTHING.handSpanRatioAlpha, 0);
   readonly topPowerVertOffset = new ScalarTracker(SMOOTHING.topPowerVertOffsetAlpha, 0);
+  readonly topPowerSignedVertOffset = new ScalarTracker(SMOOTHING.signedHandOffsetAlpha, 0);
+  readonly handLineDeviation = new ScalarTracker(
+    SMOOTHING.handLineAngleAlpha,
+    SMOOTHING.handLineVelocityAlpha,
+  );
   readonly pwrWristRelShX = new ScalarTracker(SMOOTHING.powerWristPosAlpha, 0);
   readonly pwrWristRelShY = new ScalarTracker(SMOOTHING.powerWristPosAlpha, 0);
   readonly pwrWristRelHipX = new ScalarTracker(SMOOTHING.powerWristPosAlpha, 0);
@@ -440,7 +445,8 @@ export class StrokeTracker {
   readonly calibrator = new BodyCenterCalibrator();
 
   // 手间距速度
-  readonly handSpanVelocityTracker = new ScalarTracker(0, SMOOTHING.handSpanVelocityAlpha);
+  // 此 tracker 的输入本身已经是速度，因此在 value 通道做 EMA 平滑。
+  readonly handSpanVelocityTracker = new ScalarTracker(SMOOTHING.handSpanVelocityAlpha, 0);
   _prevHandRatio: number | null = null;
   _prevHandRatioTime: number = -1;
 
@@ -477,6 +483,8 @@ export class StrokeTracker {
     const sHD = this.shoulderHipDiff.update(raw.shoulderHipProjectedAngleDiffDeg, now);
     const hR = this.handSpanRatio_tracker.update(raw.handSpanRatio, now);
     const tPV = this.topPowerVertOffset.update(raw.topPowerVerticalOffsetRatio, now);
+    const tPSV = this.topPowerSignedVertOffset.update(raw.topPowerSignedVerticalOffsetRatio, now);
+    const hLD = this.handLineDeviation.update(raw.handLineVerticalDeviationDeg, now);
     const pRSx = this.pwrWristRelShX.update(raw.powerWristRelShoulder.x, now);
     const pRSy = this.pwrWristRelShY.update(raw.powerWristRelShoulder.y, now);
     const pRHx = this.pwrWristRelHipX.update(raw.powerWristRelHip.x, now);
@@ -498,6 +506,36 @@ export class StrokeTracker {
     }
     this._prevHandRatio = raw.handSpanRatio;
     this._prevHandRatioTime = now;
+
+    // ── 2.1 徒手双手协同性 ──
+    // 双手连线接近垂直、上手高于下手、握距变化平稳时得分更高。
+    let handCoordinationScore: number | null = null;
+    if (
+      hLD.value !== null &&
+      hLD.velocity !== null &&
+      tPSV.value !== null &&
+      hR.value !== null &&
+      handSpanVel !== null
+    ) {
+      const alignmentScore = Math.max(0, 100 - Math.max(0, hLD.value - 8) * 3.6);
+      const orderScore = tPSV.value >= 0.55
+        ? 100
+        : tPSV.value > 0
+        ? 55 + Math.min(45, tPSV.value / 0.55 * 45)
+        : 15;
+      const spanScore = hR.value >= 1.05 && hR.value <= 2.05
+        ? 100
+        : Math.max(20, 100 - Math.min(Math.abs(hR.value - 1.55) * 75, 80));
+      const spanStabilityScore = Math.max(0, 100 - Math.max(0, Math.abs(handSpanVel) - 0.12) * 150);
+      const lineStabilityScore = Math.max(0, 100 - Math.max(0, Math.abs(hLD.velocity) - 8) * 2.2);
+      handCoordinationScore = Math.round(
+        alignmentScore * 0.32 +
+        orderScore * 0.18 +
+        spanScore * 0.15 +
+        spanStabilityScore * 0.20 +
+        lineStabilityScore * 0.15,
+      );
+    }
 
     // ── 3. 下手速度（双分量 → 方向）──
     const pwrVel = this.powerWristVel.update(
@@ -533,6 +571,9 @@ export class StrokeTracker {
       shoulderHipProjectedAngleDiffDeg: sHD.value,
       handSpanRatio: hR.value,
       topPowerVerticalOffsetRatio: tPV.value,
+      topPowerSignedVerticalOffsetRatio: tPSV.value,
+      handLineVerticalDeviationDeg: hLD.value,
+      handCoordinationScore,
       powerWristRelShoulder: { x: pRSx.value, y: pRSy.value },
       powerWristRelHip: { x: pRHx.value, y: pRHy.value },
       shoulderHeightDiff: shHD.value,
@@ -556,6 +597,9 @@ export class StrokeTracker {
     valid.powerWristRelCompositeSpeed = pwrVel.compositeSpeed !== null;
     valid.powerWristRelDirection = pwrVel.directionDeg !== null;
     valid.handSpanVelocity = handSpanVelValid;
+    valid.topPowerSignedVertOffset = tPSV.valid;
+    valid.handLineVerticalDeviation = hLD.valid;
+    valid.handCoordinationScore = handCoordinationScore !== null;
     valid.bodyCenterDisplacement = bCDisp !== null;
     valid.bodyCenterVelocity = bCY.velocity !== null;
     result.validity = valid;
@@ -584,6 +628,8 @@ export class StrokeTracker {
     this.shoulderHipDiff.resetAll();
     this.handSpanRatio_tracker.resetAll();
     this.topPowerVertOffset.resetAll();
+    this.topPowerSignedVertOffset.resetAll();
+    this.handLineDeviation.resetAll();
     this.pwrWristRelShX.resetAll();
     this.pwrWristRelShY.resetAll();
     this.pwrWristRelHipX.resetAll();

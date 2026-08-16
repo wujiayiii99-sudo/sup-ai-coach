@@ -32,6 +32,9 @@ export const SMOOTHING = {
   // ── 距离类 ──
   handSpanRatioAlpha: 0.30,
   topPowerVertOffsetAlpha: 0.30,
+  handLineAngleAlpha: 0.28,
+  handLineVelocityAlpha: 0.20,
+  signedHandOffsetAlpha: 0.30,
   powerWristPosAlpha: 0.30,
   shoulderHeightDiffAlpha: 0.25,
 
@@ -116,6 +119,9 @@ export const METRICS_INFO: MetricInfo[] = [
   { id: "shoulderHipDiff",     label: "肩髋投影差",unit: "°",    reliability: "medium" },
   { id: "handSpanRatio",       label: "双手间距", unit: "倍肩宽", reliability: "high" },
   { id: "topPowerVertOffset",  label: "上下手垂直",unit: "倍肩宽", reliability: "medium" },
+  { id: "topPowerSignedVertOffset", label: "上下手位置", unit: "倍肩宽", reliability: "medium" },
+  { id: "handLineVerticalDeviation", label: "双手连线偏差", unit: "°", reliability: "high" },
+  { id: "handCoordinationScore", label: "双手协同性", unit: "分", reliability: "medium" },
   { id: "pwrWristRelShoulder", label: "下手→肩", unit: "倍肩宽", reliability: "medium" },
   { id: "pwrWristRelHip",      label: "下手→髋", unit: "倍肩宽", reliability: "medium" },
   { id: "pwrWristHorizVel",    label: "下手水平速度",unit: "倍肩宽/秒", reliability: "medium" },
@@ -141,6 +147,18 @@ export const PHASE_CONFIG = {
   pushExitDebounceMs: 80,
   /** 推桨后强制进入恢复的时间上限 */
   pushMaxDurationMs: 500,
+  /** 拉桨最短持续时间，过滤手腕抖动 */
+  pullMinDurationMs: 220,
+  /** 拉桨最长持续时间，超时后回到准备状态 */
+  pullMaxDurationMs: 1800,
+  /** 有效拉桨最低位移（倍肩宽） */
+  pullMinDisplacement: 0.18,
+  /** 两次有效计数之间的最短时间 */
+  strokeCooldownMs: 500,
+  /** 回桨至少持续时间 */
+  recoveryMinDurationMs: 220,
+  /** 完整周期最大时长 */
+  maxCycleDurationMs: 3200,
   /** 进入暂停所需静止时间 */
   pauseEnterMs: 800,
 
@@ -149,8 +167,6 @@ export const PHASE_CONFIG = {
 
   /** 峰值速度下降比例 → 推桨 */
   peakSpeedDropRatio: 0.3,
-  /** 恢复阶段最小时长 */
-  recoveryMinDuration: 400,
   /** 暂停判定速度阈值 */
   pauseSpeedThreshold: 0.2,
 

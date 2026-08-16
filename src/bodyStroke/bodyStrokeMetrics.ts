@@ -212,6 +212,36 @@ function computeTopPowerVerticalOffset(
   return Math.abs(top.y - pwr.y) / shWidth;
 }
 
+/**
+ * 下手与上手的有符号垂直偏移。
+ * 图像 y 轴向下，因此 pwr.y - top.y > 0 表示上手确实位于下手上方。
+ */
+function computeTopPowerSignedVerticalOffset(
+  landmarks: NormalizedLandmark[],
+  roles: StrokeRoles,
+  shWidth: number,
+): number | null {
+  if (shWidth < 0.02) return null;
+  const top = getLm(landmarks, roles.topWristIdx);
+  const pwr = getLm(landmarks, roles.powerWristIdx);
+  if (!isVisible(top, VISIBILITY.wrist) || !isVisible(pwr, VISIBILITY.wrist)) return null;
+  return (pwr.y - top.y) / shWidth;
+}
+
+/** 双手连线相对画面垂直方向的偏差：0° 完全竖直，90° 完全水平。 */
+function computeHandLineVerticalDeviationDeg(
+  landmarks: NormalizedLandmark[],
+  roles: StrokeRoles,
+): number | null {
+  const top = getLm(landmarks, roles.topWristIdx);
+  const pwr = getLm(landmarks, roles.powerWristIdx);
+  if (!isVisible(top, VISIBILITY.wrist) || !isVisible(pwr, VISIBILITY.wrist)) return null;
+  const dx = Math.abs(pwr.x - top.x);
+  const dy = Math.abs(pwr.y - top.y);
+  if (dx + dy < 1e-5) return null;
+  return Math.atan2(dx, dy) * (180 / Math.PI);
+}
+
 // ================================================================
 // M09 — 下手相对工作侧肩的二维位置
 // ================================================================
@@ -374,6 +404,9 @@ function computeValidity(
     shoulderHipProjectedDiff: v(L_SHOULDER) && v(R_SHOULDER) && v(L_HIP) && v(R_HIP),
     handSpanRatio:         swOk && v(L_WRIST, VISIBILITY.wrist) && v(R_WRIST, VISIBILITY.wrist) && v(L_SHOULDER) && v(R_SHOULDER),
     topPowerVertOffset:    swOk,
+    topPowerSignedVertOffset: swOk && v(L_WRIST, VISIBILITY.wrist) && v(R_WRIST, VISIBILITY.wrist),
+    handLineVerticalDeviation: v(L_WRIST, VISIBILITY.wrist) && v(R_WRIST, VISIBILITY.wrist),
+    handCoordinationScore: false,
     powerWristRelShoulderX: swOk,
     powerWristRelShoulderY: swOk,
     powerWristRelHipX:     swOk,
@@ -432,6 +465,8 @@ export function computeStrokeMetrics(
   const torsoLean = computeTorsoLeanDeg(landmarks);
   const handRatio = computeHandSpanRatio(landmarks);
   const topVertOff = shWidth !== null ? computeTopPowerVerticalOffset(landmarks, roles, shWidth) : null;
+  const signedTopVertOff = shWidth !== null ? computeTopPowerSignedVerticalOffset(landmarks, roles, shWidth) : null;
+  const handLineDeviation = computeHandLineVerticalDeviationDeg(landmarks, roles);
   const pwrRelSh = shWidth !== null ? computePowerWristRelShoulder(landmarks, roles, shWidth) : { x: null, y: null };
   const pwrRelHip = shWidth !== null ? computePowerWristRelHip(landmarks, roles, shWidth) : { x: null, y: null };
   const shHeightDiff = shWidth !== null ? computeShoulderHeightDiff(landmarks, shWidth) : null;
@@ -455,6 +490,9 @@ export function computeStrokeMetrics(
 
     handSpanRatio: handRatio,
     topPowerVerticalOffsetRatio: topVertOff,
+    topPowerSignedVerticalOffsetRatio: signedTopVertOff,
+    handLineVerticalDeviationDeg: handLineDeviation,
+    handCoordinationScore: null,
     powerWristRelShoulder: { x: pwrRelSh.x, y: pwrRelSh.y },
     powerWristRelHip: { x: pwrRelHip.x, y: pwrRelHip.y },
     shoulderHeightDiff: shHeightDiff,
@@ -504,6 +542,9 @@ function createEmptyMetrics(
     shoulderHipProjectedDiff: false,
     handSpanRatio: false,
     topPowerVertOffset: false,
+    topPowerSignedVertOffset: false,
+    handLineVerticalDeviation: false,
+    handCoordinationScore: false,
     powerWristRelShoulderX: false, powerWristRelShoulderY: false,
     powerWristRelHipX: false, powerWristRelHipY: false,
     powerWristRelHorizVel: false, powerWristRelVertVel: false,
@@ -524,6 +565,9 @@ function createEmptyMetrics(
     shoulderHipProjectedAngleDiffDeg: null,
     handSpanRatio: null,
     topPowerVerticalOffsetRatio: null,
+    topPowerSignedVerticalOffsetRatio: null,
+    handLineVerticalDeviationDeg: null,
+    handCoordinationScore: null,
     powerWristRelShoulder: { x: null, y: null },
     powerWristRelHip: { x: null, y: null },
     shoulderHeightDiff: null,

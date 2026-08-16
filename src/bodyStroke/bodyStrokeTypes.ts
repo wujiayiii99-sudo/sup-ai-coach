@@ -94,6 +94,9 @@ export interface PerMetricValidity {
   shoulderHipProjectedDiff: boolean;
   handSpanRatio: boolean;
   topPowerVertOffset: boolean;
+  topPowerSignedVertOffset: boolean;
+  handLineVerticalDeviation: boolean;
+  handCoordinationScore: boolean;
   powerWristRelShoulderX: boolean;
   powerWristRelShoulderY: boolean;
   powerWristRelHipX: boolean;
@@ -131,6 +134,12 @@ export interface BodyStrokeMetrics {
   handSpanRatio: number | null;
   /** 上手与下手在图像垂直方向的距离 ÷ 肩宽 */
   topPowerVerticalOffsetRatio: number | null;
+  /** 下手 y - 上手 y，正值表示上手位于下手上方 */
+  topPowerSignedVerticalOffsetRatio: number | null;
+  /** 双手连线相对画面垂直方向的偏差，0° 为完全竖直 */
+  handLineVerticalDeviationDeg: number | null;
+  /** 徒手模拟时双手连线、上下手顺序与握距稳定性的综合分 */
+  handCoordinationScore: number | null;
   /** 下手腕相对于工作侧肩的归一化位置 */
   powerWristRelShoulder: { x: number | null; y: number | null };
   /** 下手腕相对于工作侧髋的归一化位置 */

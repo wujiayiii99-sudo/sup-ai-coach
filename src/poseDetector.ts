@@ -56,9 +56,7 @@ export async function initializeDetector(): Promise<"GPU" | "CPU"> {
 
       const cpuMessage = error instanceof Error ? error.message : String(error);
       const gpuMessage = gpuError instanceof Error ? gpuError.message : String(gpuError);
-      throw new Error(`GPU 模式失败：${gpuMessage}\nCPU 兼容模式失败：${cpuMessage}`, {
-        cause: error,
-      });
+      throw new Error(`GPU 模式失败：${gpuMessage}\nCPU 兼容模式失败：${cpuMessage}`);
     }
   }
 

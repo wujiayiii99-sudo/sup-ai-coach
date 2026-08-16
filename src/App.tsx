@@ -78,31 +78,6 @@ const STATUS_DOT_CLASS: Record<AppStatus, string> = {
   "发生错误": "dot-error",
 };
 
-/** 最近一帧调试快照类型（调试面板导出用） */
-interface DebugSnapshot {
-  timestamp: number;
-  status: AppStatus;
-  calibrationStatus: CalibrationStatus;
-  posturePhase: PosturePhase;
-  markerValid: boolean;
-  stickStatus: StickStatus;
-  stickAngle: number | null;
-  detectedStrokeSide: StrokeSide | null;
-  metrics: {
-    lean: LeanResult | null;
-    handRatio: number | null;
-    strokeMetrics: Pick<
-      BodyStrokeMetrics,
-      | "elbowAngleDeg"
-      | "kneeAngleDeg"
-      | "torsoLeanDeg"
-      | "shoulderHipProjectedAngleDiffDeg"
-    > | null;
-  };
-  rawLandmarksCount: number;
-  visibleKeypoints: number;
-}
-
 function App() {
   // ---- 状态 ----
   const [status, setStatus] = useState<AppStatus>("模型加载中");
@@ -122,7 +97,7 @@ function App() {
   const isRunningRef = useRef(false);
   const animationIdRef = useRef(0);
   const fpsCounterRef = useRef(0);
-  const fpsLastTimeRef = useRef(0);
+  const fpsLastTimeRef = useRef(performance.now());
   const lastFrameTimeRef = useRef(-1);
 
   // ---- V1 指标状态 ----
@@ -157,12 +132,13 @@ function App() {
   const [sessionReportData, setSessionReportData] = useState<{
     items: { title: string; value: string; comment: string }[];
     score: number | null;
+    validStrokes: number;
   } | null>(null);
   const selectedSideRef = useRef<StrokeSide>("right");
   const detectedStrokeSideRef = useRef<StrokeSide | null>(null);
   const strokeTrackerRef = useRef<StrokeTracker | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
-  const lastDebugRef = useRef<DebugSnapshot | null>(null);
+  const lastDebugRef = useRef<any>(null);
   const [lastDebugText, setLastDebugText] = useState<string>("{}");
   const latestStrokeMetricsRef = useRef<BodyStrokeMetrics | null>(null);
 
@@ -210,13 +186,9 @@ function App() {
   }, []);
 
   useEffect(() => {
-    // 延迟到下一帧执行，避免在 effect 主体内同步 setState（react-hooks/set-state-in-effect）
-    const rafId = requestAnimationFrame(() => {
-      void loadDetector();
-    });
+    loadDetector();
 
     return () => {
-      cancelAnimationFrame(rafId);
       closeDetector();
     };
   }, [loadDetector]);
@@ -410,7 +382,7 @@ function App() {
             if (FEATURE_FLAGS.V4_STROKE_ANALYSIS && rawLandmarks) {
               const now = performance.now();
               const prevTs = strokeTrackerRef.current
-                ? strokeTrackerRef.current._prevTimestamp
+                ? (strokeTrackerRef.current as any)._prevTimestamp
                 : now;
               // 使用用户手动选择的划桨侧
               const side = selectedSideRef.current;
@@ -460,7 +432,7 @@ function App() {
 
       // 更新最近一帧调试数据（轻量摘要）
       try {
-        const visibleCount = (_lastFrameLandmarks || []).reduce((acc: number, kp: NormalizedLandmark) => acc + (((kp.visibility ?? 0) >= 0.5) ? 1 : 0), 0);
+        const visibleCount = (_lastFrameLandmarks || []).reduce((acc: number, kp: any) => acc + (((kp.visibility ?? 0) >= 0.5) ? 1 : 0), 0);
         lastDebugRef.current = {
           timestamp: Date.now(),
           status: statusRef.current,
@@ -473,17 +445,17 @@ function App() {
           metrics: {
             lean: metricsLean,
             handRatio: metricsHandRatio,
-            strokeMetrics: strokeMetrics ? {
-              elbowAngleDeg: strokeMetrics.elbowAngleDeg,
-              kneeAngleDeg: strokeMetrics.kneeAngleDeg,
-              torsoLeanDeg: strokeMetrics.torsoLeanDeg,
-              shoulderHipProjectedAngleDiffDeg: strokeMetrics.shoulderHipProjectedAngleDiffDeg,
+            strokeMetrics: sm ? {
+              elbowAngleDeg: sm.elbowAngleDeg,
+              kneeAngleDeg: sm.kneeAngleDeg,
+              torsoLeanDeg: sm.torsoLeanDeg,
+              shoulderHipProjectedAngleDiffDeg: sm.shoulderHipProjectedAngleDiffDeg,
             } : null,
           },
           rawLandmarksCount: _lastFrameLandmarks ? _lastFrameLandmarks.length : 0,
           visibleKeypoints: visibleCount,
         };
-      } catch {
+      } catch (e) {
         // ignore
       }
 
@@ -498,6 +470,65 @@ function App() {
     };
   }, [isCameraOn]);
 
+  useEffect(() => {
+    if (!isCameraOn || sessionStartedAt === null) return;
+    const activeScores: number[] = [];
+    let maxActiveSpeed = 0;
+    const id = window.setInterval(() => {
+      const elapsedSeconds = Math.floor((performance.now() - sessionStartedAt) / 1000);
+      setSessionSeconds(Math.min(elapsedSeconds, 15));
+
+      // 只在拉桨/推桨阶段采集评分，静止/准备/暂停帧不计入
+      const phase = phaseMachineRef.current?.currentPhase;
+      const m = latestStrokeMetricsRef.current;
+      if (m && (phase === "pull" || phase === "push")) {
+        const s = computeSessionScore(m);
+        if (s !== null) activeScores.push(s);
+        if (m.powerWristRelativeCompositeSpeed !== null) {
+          maxActiveSpeed = Math.max(maxActiveSpeed, m.powerWristRelativeCompositeSpeed);
+        }
+      }
+
+      if (elapsedSeconds >= 15) {
+        clearInterval(id); // 冻结报告，不再覆盖
+        // 补计最后一桨：测试结束时把已完成有效拉桨但尚未进入回桨/冷却的周期计入
+        phaseMachineRef.current?.finalizePendingStroke(performance.now());
+        setSessionReportReady(true);
+        const activeSide = selectedSideRef.current;
+        const lastM = latestStrokeMetricsRef.current;
+        const items = lastM ? buildReportItems(lastM, activeSide) : [];
+        const strokeCount = phaseMachineRef.current?.strokeCount ?? 0;
+
+        // 综合评分 = 动作质量(60%) + 完成桨数(40%)
+        // 动作质量：拉桨/推桨阶段的指标平均分
+        // 完成桨数：每完成一桨 = 20分，5桨满分
+        let finalScore: number | null = null;
+        const qualityScore = activeScores.length > 0
+          ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
+          : 0;
+        const activityScore = Math.min(100, strokeCount * 20); // 每桨+20，5桨满分
+
+        if (strokeCount > 0) {
+          // 有完整划桨周期：质量60% + 活动量40%
+          finalScore = Math.round(qualityScore * 0.6 + activityScore * 0.4);
+        } else if (activeScores.length > 3) {
+          // 有动作但未成完整周期，给一个基础分
+          finalScore = Math.round(Math.min(55, qualityScore * 0.5 + 15));
+        } else {
+          // 基本没动，最高45分
+          finalScore = Math.min(45, qualityScore);
+        }
+
+        setSessionReportData({
+          items,
+          score: Math.max(0, Math.min(100, finalScore)),
+          validStrokes: strokeCount,
+        });
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [isCameraOn, sessionStartedAt]);
+
   // 当调试面板展开时，定时把 lastDebugRef 写入可复制文本（降低渲染频率）
   useEffect(() => {
     if (!debugOpen) return;
@@ -505,7 +536,7 @@ function App() {
       try {
         const obj = lastDebugRef.current ?? {};
         setLastDebugText(JSON.stringify(obj, null, 2));
-      } catch {
+      } catch (e) {
         setLastDebugText("{}");
       }
     }, 500);
@@ -674,8 +705,7 @@ function App() {
     setSessionStartedAt(performance.now());
   }, [status, metricsLean, metricsHandRatio, posturePhase, calibrationStatus]);
 
-  /** 综合评分：动作质量(60%) + 完成桨数(40%)，仅依赖 selectedSideRef（稳定 ref），故空依赖 */
-  const computeSessionScore = useCallback((smParam: BodyStrokeMetrics | null): number | null => {
+  const computeSessionScore = (smParam: BodyStrokeMetrics | null): number | null => {
     if (!smParam) return null;
     const scores: number[] = [];
     const cap = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
@@ -736,7 +766,7 @@ function App() {
     if (scores.length === 0) return null;
     const avg = Math.round(scores.reduce((s, x) => s + x, 0) / scores.length);
     return cap(avg);
-  }, []);
+  };
 
   /** 从指标数据构建报告项（可在组件渲染和定时器回调中复用） */
   const buildReportItems = useCallback((
@@ -845,64 +875,38 @@ function App() {
           ? "身体重心稳定，划行姿态好"
           : "身体重心起伏较大，注意减少上下晃动",
       },
+      // 9. 双手连线垂直偏差（徒手）
+      {
+        title: "双手连线垂直偏差",
+        value: m.handLineVerticalDeviationDeg !== null
+          ? fv(Math.abs(m.handLineVerticalDeviationDeg), 1) + "°"
+          : "--",
+        comment: m.handLineVerticalDeviationDeg === null
+          ? "无法检测"
+          : Math.abs(m.handLineVerticalDeviationDeg) <= 8
+          ? "双手连线接近竖直，握姿端正"
+          : Math.abs(m.handLineVerticalDeviationDeg) <= 20
+          ? "双手连线轻微偏斜，注意上下手保持竖直排列"
+          : "双手连线明显偏斜，上下手横向错位较大",
+      },
+      // 10. 双手协同性（徒手）
+      {
+        title: "双手协同性",
+        value: m.handCoordinationScore !== null
+          ? m.handCoordinationScore + " 分"
+          : "--",
+        comment: m.handCoordinationScore === null
+          ? "无法检测"
+          : m.handCoordinationScore >= 80
+          ? "双手配合良好，动作协调"
+          : m.handCoordinationScore >= 60
+          ? "双手协同性尚可，注意上下手位置"
+          : m.handCoordinationScore >= 40
+          ? "双手协同性偏低，检查上下手是否错位"
+          : "双手明显不协调，可能存在上下手颠倒或偏斜",
+      },
     ];
   }, []);
-
-  useEffect(() => {
-    if (!isCameraOn || sessionStartedAt === null) return;
-    const activeScores: number[] = [];
-    let maxActiveSpeed = 0;
-    const id = window.setInterval(() => {
-      const elapsedSeconds = Math.floor((performance.now() - sessionStartedAt) / 1000);
-      setSessionSeconds(Math.min(elapsedSeconds, 15));
-
-      // 只在拉桨/推桨阶段采集评分，静止/准备/暂停帧不计入
-      const phase = phaseMachineRef.current?.currentPhase;
-      const m = latestStrokeMetricsRef.current;
-      if (m && (phase === "pull" || phase === "push")) {
-        const s = computeSessionScore(m);
-        if (s !== null) activeScores.push(s);
-        if (m.powerWristRelativeCompositeSpeed !== null) {
-          maxActiveSpeed = Math.max(maxActiveSpeed, m.powerWristRelativeCompositeSpeed);
-        }
-      }
-
-      if (elapsedSeconds >= 15) {
-        clearInterval(id); // 冻结报告，不再覆盖
-        setSessionReportReady(true);
-        const activeSide = selectedSideRef.current;
-        const lastM = latestStrokeMetricsRef.current;
-        const items = lastM ? buildReportItems(lastM, activeSide) : [];
-        const strokeCount = phaseMachineRef.current?.strokeCount ?? 0;
-
-        // 综合评分 = 动作质量(60%) + 完成桨数(40%)
-        // 动作质量：拉桨/推桨阶段的指标平均分
-        // 完成桨数：每完成一桨 = 20分，5桨满分
-        let finalScore: number | null;
-        const qualityScore = activeScores.length > 0
-          ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
-          : 0;
-        const activityScore = Math.min(100, strokeCount * 20); // 每桨+20，5桨满分
-
-        if (strokeCount > 0) {
-          // 有完整划桨周期：质量60% + 活动量40%
-          finalScore = Math.round(qualityScore * 0.6 + activityScore * 0.4);
-        } else if (activeScores.length > 3) {
-          // 有动作但未成完整周期，给一个基础分
-          finalScore = Math.round(Math.min(55, qualityScore * 0.5 + 15));
-        } else {
-          // 基本没动，最高45分
-          finalScore = Math.min(45, qualityScore);
-        }
-
-        setSessionReportData({
-          items,
-          score: Math.max(0, Math.min(100, finalScore)),
-        });
-      }
-    }, 250);
-    return () => window.clearInterval(id);
-  }, [isCameraOn, sessionStartedAt, computeSessionScore, buildReportItems]);
 
   const handleStopCamera = useCallback(() => {
     isRunningRef.current = false;
@@ -1042,7 +1046,7 @@ function App() {
       <h1 className="app-title">桨板直线划行 AI 动作教练</h1>
 
       <p className="app-description">
-        通过摄像头识别划桨动作，从站姿、握桨、躯干控制和动作节奏等方面提供练习建议。
+        通过摄像头识别徒手划桨动作，从站姿、双手配合、躯干控制和动作节奏等方面提供练习建议。
       </p>
 
       <section className="setup-guide" aria-labelledby="setup-title">
@@ -1050,7 +1054,7 @@ function App() {
         <div className="setup-steps">
           <span>设备正对身体约 3—4 米</span>
           <span>建议横屏并固定设备</span>
-          <span>头部、双脚和完整桨身入镜</span>
+          <span>头部、双脚和双手完整入镜</span>
           <span>保持光线充足、背景简洁</span>
         </div>
       </section>
@@ -1090,7 +1094,7 @@ function App() {
 
         <div className="sidebar">
           <div className="session-card">
-            <div className="session-card-title">划桨动作测试</div>
+            <div className="session-card-title">徒手模拟划桨测试</div>
             <div className="session-card-body">
               <div className="session-card-row">{sessionCountdownText}</div>
               <div className={`readiness-message ${canStartTest ? "readiness-ready" : ""}`} role="status" aria-live="polite">
@@ -1103,7 +1107,7 @@ function App() {
                   disabled={!isCameraOn || !canStartTest}
                   title={!canStartTest ? "请确保入镜、四肢/站姿识别及校准完成后再开始" : "开始 15s 测试"}
                 >
-                  开始动作测试
+                  开始徒手模拟
                 </button>
               </div>
             </div>
@@ -1116,6 +1120,7 @@ function App() {
                 {sessionReportData && sessionReportData.score !== null ? (
                   <div className="report-score-value">练习参考分：{sessionReportData.score} / 100</div>
                 ) : null}
+                <div className="report-score-value">有效完整划桨：{sessionReportData?.validStrokes ?? 0} 桨</div>
               </div>
               <p className="report-disclaimer">该结果用于课后练习反馈，不替代教师的技术评价。</p>
               <div className="report-list">
@@ -1150,8 +1155,7 @@ function App() {
               <div className="debug-body">
                 <div className="debug-keys">
                   <div>pose 有效: {status === '人体识别正常' ? '是' : '否'}</div>
-                  {/* eslint-disable-next-line react-hooks/refs -- 检测循环每帧写入的实时值，debug 面板仅作展示 */}
-                  <div>stick/paddle 检测: {markerValidRef.current ? '是' : stickStatus === '杆体识别正常' ? '是' : '否'}</div>
+                  <div>stick/paddle 检测: {markerValidRef.current ? '是' : stickStatusRef.current === '杆体识别正常' ? '是' : '否'}</div>
                   <div>stroke phase: {posturePhase}</div>
                   <div>hands distance 有效: {metricsHandRatio !== null ? '是' : '否'}</div>
                   <div>trunk angle 有效: {metricsLean !== null ? '是' : '否'}</div>
@@ -1174,7 +1178,7 @@ function App() {
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(lastDebugText);
-                        } catch {
+                        } catch (e) {
                           const ta = document.createElement('textarea');
                           ta.value = lastDebugText;
                           document.body.appendChild(ta);
@@ -1312,17 +1316,17 @@ function App() {
                 onClick={() => setSelectedStrokeSide("right")}
                 aria-pressed={selectedStrokeSide === "right"}
               >
-                右桨
+                右手划桨
               </button>
               <button
                 className={`btn-side ${selectedStrokeSide === "left" ? "btn-side-active" : ""}`}
                 onClick={() => setSelectedStrokeSide("left")}
                 aria-pressed={selectedStrokeSide === "left"}
               >
-                左桨
+                左手划桨
               </button>
               <span className="stroke-side-hint">
-                请选择与手持木棍一致的一侧
+                请选择主导发力的一侧
               </span>
             </div>
             <div className="stroke-calibration">
@@ -1370,7 +1374,7 @@ function App() {
                 <span className="metric-value">{f(sm?.handSpanRatio, 2)}×肩</span>
               </div>
               <div className="metric-item">
-                <span className="metric-label">桨/木棍角度</span>
+                <span className="metric-label">拉桨方向角度</span>
                 <span className="metric-value">{paddleAngleDisplay}</span>
               </div>
               <div className="metric-item metric-item-full">

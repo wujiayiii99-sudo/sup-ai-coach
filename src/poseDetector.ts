@@ -10,6 +10,7 @@ import {
 } from "@mediapipe/tasks-vision";
 
 let poseLandmarker: PoseLandmarker | null = null;
+let activeDelegate: "GPU" | "CPU" | null = null;
 
 /** 最近一次处理过的视频帧序号（用于同帧去重） */
 let lastVideoTime: number = -1;
@@ -26,21 +27,42 @@ const WASM_URL = "/wasm/";
  * 初始化 Pose Landmarker 模型
  * 仅在首次调用时加载，复用已有实例
  */
-export async function initializeDetector(): Promise<void> {
-  if (poseLandmarker) return;
+export async function initializeDetector(): Promise<"GPU" | "CPU"> {
+  if (poseLandmarker && activeDelegate) return activeDelegate;
 
   const vision = await FilesetResolver.forVisionTasks(WASM_URL);
-  poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-    baseOptions: {
-      modelAssetPath: MODEL_URL,
-      delegate: "GPU",
-    },
-    runningMode: "VIDEO",
-    numPoses: 1,
-    minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5,
-  });
+  let gpuError: unknown = null;
+
+  for (const delegate of ["GPU", "CPU"] as const) {
+    try {
+      poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: MODEL_URL,
+          delegate,
+        },
+        runningMode: "VIDEO",
+        numPoses: 1,
+        minPoseDetectionConfidence: 0.5,
+        minPosePresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+      activeDelegate = delegate;
+      return delegate;
+    } catch (error) {
+      if (delegate === "GPU") {
+        gpuError = error;
+        continue;
+      }
+
+      const cpuMessage = error instanceof Error ? error.message : String(error);
+      const gpuMessage = gpuError instanceof Error ? gpuError.message : String(gpuError);
+      throw new Error(`GPU 模式失败：${gpuMessage}\nCPU 兼容模式失败：${cpuMessage}`, {
+        cause: error,
+      });
+    }
+  }
+
+  throw new Error("动作识别模型初始化失败");
 }
 
 /**
@@ -81,6 +103,7 @@ export function detectPose(
 export function closeDetector(): void {
   poseLandmarker?.close();
   poseLandmarker = null;
+  activeDelegate = null;
   lastVideoTime = -1;
   lastResult = null;
 }

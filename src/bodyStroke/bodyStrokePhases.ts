@@ -229,7 +229,7 @@ const nowMs = now;
     // _transitionTo 已记录 phaseStartTime，无需额外处理
 
     // ---- 置信度计算 ----
-    let confidence = 0;
+    let confidence: number;
     if (newPhase === "pause" || newPhase === "ready") {
       // 静止阶段：速度越低越确定
       confidence = Math.max(0, 1 - speed / cfg.pauseSpeedThreshold);

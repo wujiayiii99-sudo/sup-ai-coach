@@ -78,13 +78,41 @@ const STATUS_DOT_CLASS: Record<AppStatus, string> = {
   "发生错误": "dot-error",
 };
 
+/** 最近一帧调试快照类型（调试面板导出用） */
+interface DebugSnapshot {
+  timestamp: number;
+  status: AppStatus;
+  calibrationStatus: CalibrationStatus;
+  posturePhase: PosturePhase;
+  markerValid: boolean;
+  stickStatus: StickStatus;
+  stickAngle: number | null;
+  detectedStrokeSide: StrokeSide | null;
+  metrics: {
+    lean: LeanResult | null;
+    handRatio: number | null;
+    strokeMetrics: Pick<
+      BodyStrokeMetrics,
+      | "elbowAngleDeg"
+      | "kneeAngleDeg"
+      | "torsoLeanDeg"
+      | "shoulderHipProjectedAngleDiffDeg"
+    > | null;
+  };
+  rawLandmarksCount: number;
+  visibleKeypoints: number;
+}
+
 function App() {
   // ---- 状态 ----
   const [status, setStatus] = useState<AppStatus>("模型加载中");
   const [fps, setFps] = useState(0);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [technicalError, setTechnicalError] = useState<string | null>(null);
   const [modelReady, setModelReady] = useState(false);
+  const [modelLoading, setModelLoading] = useState(true);
+  const [modelMode, setModelMode] = useState<"GPU" | "CPU" | null>(null);
 
   // ---- 引用 ----
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -94,7 +122,7 @@ function App() {
   const isRunningRef = useRef(false);
   const animationIdRef = useRef(0);
   const fpsCounterRef = useRef(0);
-  const fpsLastTimeRef = useRef(performance.now());
+  const fpsLastTimeRef = useRef(0);
   const lastFrameTimeRef = useRef(-1);
 
   // ---- V1 指标状态 ----
@@ -134,7 +162,7 @@ function App() {
   const detectedStrokeSideRef = useRef<StrokeSide | null>(null);
   const strokeTrackerRef = useRef<StrokeTracker | null>(null);
   const [debugOpen, setDebugOpen] = useState(false);
-  const lastDebugRef = useRef<any>(null);
+  const lastDebugRef = useRef<DebugSnapshot | null>(null);
   const [lastDebugText, setLastDebugText] = useState<string>("{}");
   const latestStrokeMetricsRef = useRef<BodyStrokeMetrics | null>(null);
 
@@ -154,35 +182,44 @@ function App() {
   // ================================================================
   // 初始化姿态检测模型
   // ================================================================
-  useEffect(() => {
-    let cancelled = false;
+  const loadDetector = useCallback(async () => {
+    setModelLoading(true);
+    setModelReady(false);
+    setModelMode(null);
+    setErrorMessage(null);
+    setTechnicalError(null);
+    statusRef.current = "模型加载中";
+    setStatus("模型加载中");
+    closeDetector();
 
-    async function init() {
-      try {
-        await initializeDetector();
-        if (!cancelled) {
-          setModelReady(true);
-          statusRef.current = "摄像头未启动";
-          setStatus("摄像头未启动");
-        }
-      } catch (err) {
-        if (!cancelled) {
-          statusRef.current = "发生错误";
-          setStatus("发生错误");
-          setErrorMessage(
-            `模型加载失败：${err instanceof Error ? err.message : String(err)}`
-          );
-        }
-      }
+    try {
+      const mode = await initializeDetector();
+      setModelMode(mode);
+      setModelReady(true);
+      statusRef.current = "摄像头未启动";
+      setStatus("摄像头未启动");
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      statusRef.current = "发生错误";
+      setStatus("发生错误");
+      setErrorMessage("动作识别模型未能启动。请刷新页面重试，或检查浏览器是否允许硬件加速。");
+      setTechnicalError(detail);
+    } finally {
+      setModelLoading(false);
     }
+  }, []);
 
-    init();
+  useEffect(() => {
+    // 延迟到下一帧执行，避免在 effect 主体内同步 setState（react-hooks/set-state-in-effect）
+    const rafId = requestAnimationFrame(() => {
+      void loadDetector();
+    });
 
     return () => {
-      cancelled = true;
+      cancelAnimationFrame(rafId);
       closeDetector();
     };
-  }, []);
+  }, [loadDetector]);
 
   // ================================================================
   // 初始化 StrokeTracker
@@ -373,7 +410,7 @@ function App() {
             if (FEATURE_FLAGS.V4_STROKE_ANALYSIS && rawLandmarks) {
               const now = performance.now();
               const prevTs = strokeTrackerRef.current
-                ? (strokeTrackerRef.current as any)._prevTimestamp
+                ? strokeTrackerRef.current._prevTimestamp
                 : now;
               // 使用用户手动选择的划桨侧
               const side = selectedSideRef.current;
@@ -423,7 +460,7 @@ function App() {
 
       // 更新最近一帧调试数据（轻量摘要）
       try {
-        const visibleCount = (_lastFrameLandmarks || []).reduce((acc: number, kp: any) => acc + (((kp.visibility ?? 0) >= 0.5) ? 1 : 0), 0);
+        const visibleCount = (_lastFrameLandmarks || []).reduce((acc: number, kp: NormalizedLandmark) => acc + (((kp.visibility ?? 0) >= 0.5) ? 1 : 0), 0);
         lastDebugRef.current = {
           timestamp: Date.now(),
           status: statusRef.current,
@@ -436,17 +473,17 @@ function App() {
           metrics: {
             lean: metricsLean,
             handRatio: metricsHandRatio,
-            strokeMetrics: sm ? {
-              elbowAngleDeg: sm.elbowAngleDeg,
-              kneeAngleDeg: sm.kneeAngleDeg,
-              torsoLeanDeg: sm.torsoLeanDeg,
-              shoulderHipProjectedAngleDiffDeg: sm.shoulderHipProjectedAngleDiffDeg,
+            strokeMetrics: strokeMetrics ? {
+              elbowAngleDeg: strokeMetrics.elbowAngleDeg,
+              kneeAngleDeg: strokeMetrics.kneeAngleDeg,
+              torsoLeanDeg: strokeMetrics.torsoLeanDeg,
+              shoulderHipProjectedAngleDiffDeg: strokeMetrics.shoulderHipProjectedAngleDiffDeg,
             } : null,
           },
           rawLandmarksCount: _lastFrameLandmarks ? _lastFrameLandmarks.length : 0,
           visibleKeypoints: visibleCount,
         };
-      } catch (e) {
+      } catch {
         // ignore
       }
 
@@ -461,62 +498,6 @@ function App() {
     };
   }, [isCameraOn]);
 
-  useEffect(() => {
-    if (!isCameraOn || sessionStartedAt === null) return;
-    const activeScores: number[] = [];
-    let maxActiveSpeed = 0;
-    const id = window.setInterval(() => {
-      const elapsedSeconds = Math.floor((performance.now() - sessionStartedAt) / 1000);
-      setSessionSeconds(Math.min(elapsedSeconds, 15));
-
-      // 只在拉桨/推桨阶段采集评分，静止/准备/暂停帧不计入
-      const phase = phaseMachineRef.current?.currentPhase;
-      const m = latestStrokeMetricsRef.current;
-      if (m && (phase === "pull" || phase === "push")) {
-        const s = computeSessionScore(m);
-        if (s !== null) activeScores.push(s);
-        if (m.powerWristRelativeCompositeSpeed !== null) {
-          maxActiveSpeed = Math.max(maxActiveSpeed, m.powerWristRelativeCompositeSpeed);
-        }
-      }
-
-      if (elapsedSeconds >= 15) {
-        clearInterval(id); // 冻结报告，不再覆盖
-        setSessionReportReady(true);
-        const activeSide = selectedSideRef.current;
-        const lastM = latestStrokeMetricsRef.current;
-        const items = lastM ? buildReportItems(lastM, activeSide) : [];
-        const strokeCount = phaseMachineRef.current?.strokeCount ?? 0;
-
-        // 综合评分 = 动作质量(60%) + 完成桨数(40%)
-        // 动作质量：拉桨/推桨阶段的指标平均分
-        // 完成桨数：每完成一桨 = 20分，5桨满分
-        let finalScore: number | null = null;
-        const qualityScore = activeScores.length > 0
-          ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
-          : 0;
-        const activityScore = Math.min(100, strokeCount * 20); // 每桨+20，5桨满分
-
-        if (strokeCount > 0) {
-          // 有完整划桨周期：质量60% + 活动量40%
-          finalScore = Math.round(qualityScore * 0.6 + activityScore * 0.4);
-        } else if (activeScores.length > 3) {
-          // 有动作但未成完整周期，给一个基础分
-          finalScore = Math.round(Math.min(55, qualityScore * 0.5 + 15));
-        } else {
-          // 基本没动，最高45分
-          finalScore = Math.min(45, qualityScore);
-        }
-
-        setSessionReportData({
-          items,
-          score: Math.max(0, Math.min(100, finalScore)),
-        });
-      }
-    }, 250);
-    return () => window.clearInterval(id);
-  }, [isCameraOn, sessionStartedAt]);
-
   // 当调试面板展开时，定时把 lastDebugRef 写入可复制文本（降低渲染频率）
   useEffect(() => {
     if (!debugOpen) return;
@@ -524,7 +505,7 @@ function App() {
       try {
         const obj = lastDebugRef.current ?? {};
         setLastDebugText(JSON.stringify(obj, null, 2));
-      } catch (e) {
+      } catch {
         setLastDebugText("{}");
       }
     }, 500);
@@ -626,6 +607,7 @@ function App() {
   const handleStartCamera = useCallback(async () => {
     try {
       setErrorMessage(null);
+      setTechnicalError(null);
       resetSmoothing();
       resetMetrics();
       if (FEATURE_FLAGS.V2_STICK_DETECTION) {
@@ -660,8 +642,9 @@ function App() {
       const message =
         err instanceof DOMException && err.name === "NotAllowedError"
           ? "摄像头权限被拒绝，请在浏览器设置中允许访问摄像头"
-          : `摄像头启动失败：${err instanceof Error ? err.message : String(err)}`;
+          : "摄像头启动失败。请确认没有其他应用占用摄像头，然后重试。";
       setErrorMessage(message);
+      setTechnicalError(err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -691,7 +674,8 @@ function App() {
     setSessionStartedAt(performance.now());
   }, [status, metricsLean, metricsHandRatio, posturePhase, calibrationStatus]);
 
-  const computeSessionScore = (smParam: BodyStrokeMetrics | null): number | null => {
+  /** 综合评分：动作质量(60%) + 完成桨数(40%)，仅依赖 selectedSideRef（稳定 ref），故空依赖 */
+  const computeSessionScore = useCallback((smParam: BodyStrokeMetrics | null): number | null => {
     if (!smParam) return null;
     const scores: number[] = [];
     const cap = (v: number) => Math.max(0, Math.min(100, Math.round(v)));
@@ -752,7 +736,7 @@ function App() {
     if (scores.length === 0) return null;
     const avg = Math.round(scores.reduce((s, x) => s + x, 0) / scores.length);
     return cap(avg);
-  };
+  }, []);
 
   /** 从指标数据构建报告项（可在组件渲染和定时器回调中复用） */
   const buildReportItems = useCallback((
@@ -772,11 +756,11 @@ function App() {
         value: fv(m.shoulderHipProjectedAngleDiffDeg, 1) + "°",
         comment: m.shoulderHipProjectedAngleDiffDeg === null
           ? "无法检测肩髋一致性"
-          : Math.abs(m.shoulderHipProjectedAngleDiffDeg) <= 6
-          ? "肩髋协调良好，转体稳定"
-          : Math.abs(m.shoulderHipProjectedAngleDiffDeg) <= 12
-          ? "肩髋配合有偏差，注意胸髋同步转动"
-          : "肩髋不一致，建议减少上半身错位",
+          : Math.abs(m.shoulderHipProjectedAngleDiffDeg) >= 8 && Math.abs(m.shoulderHipProjectedAngleDiffDeg) <= 18
+          ? "肩髋转动幅度适中，注意保持动作连贯"
+          : Math.abs(m.shoulderHipProjectedAngleDiffDeg) < 8
+          ? "转体参与偏少，可尝试让胸廓与髋部共同带动划桨"
+          : "肩髋错位偏大，请控制转体幅度并保持重心稳定",
       },
       // 2. 下支撑手肘（弯曲程度）
       {
@@ -784,11 +768,11 @@ function App() {
         value: fv(powerElbow, 1) + "°",
         comment: powerElbow === null
           ? "无法检测"
-          : powerElbow > 165
-          ? "下手肘过直，建议保持轻微弯曲"
-          : powerElbow >= 145
-          ? "下手肘角度适中，保持支撑稳定"
-          : "下手肘屈曲较大，注意稳定支撑",
+          : powerElbow >= 120 && powerElbow <= 150
+          ? "下手肘角度处于当前练习参考范围"
+          : powerElbow > 150
+          ? "下手肘较直，注意避免锁死关节"
+          : "下手肘屈曲较大，注意通过躯干带动而不是只用手臂发力",
       },
       // 3. 上支撑手肘（NEW）
       {
@@ -822,9 +806,11 @@ function App() {
           ? fv((m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2, 1) + "°" : "--",
         comment: m.kneeAngleDeg.left === null || m.kneeAngleDeg.right === null
           ? "无法检测双膝角度"
-          : (m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2 > 170
+          : (m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2 >= 155 && (m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2 <= 175
+          ? "双膝保持微屈，利于缓冲和稳定"
+          : (m.kneeAngleDeg.left + m.kneeAngleDeg.right) / 2 > 175
           ? "膝盖接近伸直，建议轻微弯曲以缓冲"
-          : "膝部角度良好，保持稳定",
+          : "屈膝幅度较大，请在稳定前提下适当抬高重心",
       },
       // 6. 下手运动方向（替代桨角度）
       {
@@ -861,6 +847,62 @@ function App() {
       },
     ];
   }, []);
+
+  useEffect(() => {
+    if (!isCameraOn || sessionStartedAt === null) return;
+    const activeScores: number[] = [];
+    let maxActiveSpeed = 0;
+    const id = window.setInterval(() => {
+      const elapsedSeconds = Math.floor((performance.now() - sessionStartedAt) / 1000);
+      setSessionSeconds(Math.min(elapsedSeconds, 15));
+
+      // 只在拉桨/推桨阶段采集评分，静止/准备/暂停帧不计入
+      const phase = phaseMachineRef.current?.currentPhase;
+      const m = latestStrokeMetricsRef.current;
+      if (m && (phase === "pull" || phase === "push")) {
+        const s = computeSessionScore(m);
+        if (s !== null) activeScores.push(s);
+        if (m.powerWristRelativeCompositeSpeed !== null) {
+          maxActiveSpeed = Math.max(maxActiveSpeed, m.powerWristRelativeCompositeSpeed);
+        }
+      }
+
+      if (elapsedSeconds >= 15) {
+        clearInterval(id); // 冻结报告，不再覆盖
+        setSessionReportReady(true);
+        const activeSide = selectedSideRef.current;
+        const lastM = latestStrokeMetricsRef.current;
+        const items = lastM ? buildReportItems(lastM, activeSide) : [];
+        const strokeCount = phaseMachineRef.current?.strokeCount ?? 0;
+
+        // 综合评分 = 动作质量(60%) + 完成桨数(40%)
+        // 动作质量：拉桨/推桨阶段的指标平均分
+        // 完成桨数：每完成一桨 = 20分，5桨满分
+        let finalScore: number | null;
+        const qualityScore = activeScores.length > 0
+          ? Math.round(activeScores.reduce((a, b) => a + b, 0) / activeScores.length)
+          : 0;
+        const activityScore = Math.min(100, strokeCount * 20); // 每桨+20，5桨满分
+
+        if (strokeCount > 0) {
+          // 有完整划桨周期：质量60% + 活动量40%
+          finalScore = Math.round(qualityScore * 0.6 + activityScore * 0.4);
+        } else if (activeScores.length > 3) {
+          // 有动作但未成完整周期，给一个基础分
+          finalScore = Math.round(Math.min(55, qualityScore * 0.5 + 15));
+        } else {
+          // 基本没动，最高45分
+          finalScore = Math.min(45, qualityScore);
+        }
+
+        setSessionReportData({
+          items,
+          score: Math.max(0, Math.min(100, finalScore)),
+        });
+      }
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [isCameraOn, sessionStartedAt, computeSessionScore, buildReportItems]);
 
   const handleStopCamera = useCallback(() => {
     isRunningRef.current = false;
@@ -947,10 +989,12 @@ function App() {
 
   const sessionCountdownText =
     !isCameraOn
-      ? "请先启动摄像头并开始划形"
+      ? "请先开启摄像头并完成站位检查"
       : sessionReportReady
       ? "报告已生成，可查看下面评估"
-      : `请持续划形 15s，剩余 ${15 - sessionSeconds}s`;
+      : sessionStartedAt === null
+      ? "站位与校准完成后即可开始测试"
+      : `请持续完成划桨动作，剩余 ${15 - sessionSeconds}s`;
 
 
   const reportItems = sm
@@ -977,22 +1021,44 @@ function App() {
         : "请注意下手合速度，适当加快"
       : "等待检测结果";
 
+  const readinessText = !isCameraOn
+    ? "等待开启摄像头"
+    : status === "未检测到人体"
+    ? "请后退并确保头部、双脚和双手完整入镜"
+    : metricsLean === null || metricsHandRatio === null
+    ? "正在检查四肢关键点，请保持全身可见"
+    : calibrationStatus !== "ready"
+    ? "请面向摄像头自然站立，等待校准完成"
+    : "站位检查完成，可以开始动作测试";
+
+  const debugMode = import.meta.env.DEV || new URLSearchParams(window.location.search).has("debug");
+
   // ================================================================
   // 渲染
   // ================================================================
 
   return (
     <div className="app">
-      <h1 className="app-title">桨板直线划行 AI 陪练</h1>
+      <h1 className="app-title">桨板直线划行 AI 动作教练</h1>
 
       <p className="app-description">
-        请将设备放在身体正前方，并确保全身完整进入画面
+        通过摄像头识别划桨动作，从站姿、握桨、躯干控制和动作节奏等方面提供练习建议。
       </p>
+
+      <section className="setup-guide" aria-labelledby="setup-title">
+        <h2 id="setup-title" className="setup-title">测试前准备</h2>
+        <div className="setup-steps">
+          <span>设备正对身体约 3—4 米</span>
+          <span>建议横屏并固定设备</span>
+          <span>头部、双脚和完整桨身入镜</span>
+          <span>保持光线充足、背景简洁</span>
+        </div>
+      </section>
 
       <div className="controls">
         {!isCameraOn ? (
-          <button className="btn btn-start" onClick={handleStartCamera} disabled={!modelReady}>
-            启动摄像头
+          <button className="btn btn-start" onClick={handleStartCamera} disabled={!modelReady || modelLoading}>
+            {modelLoading ? "正在准备动作识别…" : "开启摄像头并检查站位"}
           </button>
         ) : (
           <button className="btn btn-stop" onClick={handleStopCamera}>
@@ -1002,7 +1068,7 @@ function App() {
       </div>
 
       <p className="privacy-notice">
-        摄像头画面仅在当前设备浏览器中实时处理，不会上传或保存。
+        视频仅在当前设备中实时分析，不上传、不保存；关闭页面后摄像头将停止使用。
       </p>
 
       <div className="session-layout">
@@ -1013,20 +1079,23 @@ function App() {
           </div>
 
           <div className="status-bar">
-            <div className="status-indicator">
+            <div className="status-indicator" role="status" aria-live="polite">
               <span className={`status-dot ${STATUS_DOT_CLASS[status]}`} />
               <span>{status}</span>
             </div>
-            {isCameraOn && <div className="fps-display">FPS: {fps}</div>}
+            {isCameraOn && <div className="fps-display" aria-label={`画面处理速度 ${fps} 帧每秒`}>FPS: {fps}</div>}
+            {modelMode === "CPU" && <div className="compatibility-badge">兼容模式</div>}
           </div>
         </div>
 
         <div className="sidebar">
           <div className="session-card">
-            <div className="session-card-title">开始划形评估</div>
+            <div className="session-card-title">划桨动作测试</div>
             <div className="session-card-body">
               <div className="session-card-row">{sessionCountdownText}</div>
-              <div className="session-card-row">{detectedStrokeSide ? "自动识别成功" : "正在判断划侧"}</div>
+              <div className={`readiness-message ${canStartTest ? "readiness-ready" : ""}`} role="status" aria-live="polite">
+                {readinessText}
+              </div>
               <div style={{ marginTop: 10 }}>
                 <button
                   className="btn btn-start"
@@ -1034,7 +1103,7 @@ function App() {
                   disabled={!isCameraOn || !canStartTest}
                   title={!canStartTest ? "请确保入镜、四肢/站姿识别及校准完成后再开始" : "开始 15s 测试"}
                 >
-                  开始测试
+                  开始动作测试
                 </button>
               </div>
             </div>
@@ -1045,9 +1114,10 @@ function App() {
               <div className="metrics-title">📋 动作检测报告</div>
               <div className="report-score">
                 {sessionReportData && sessionReportData.score !== null ? (
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#00ff88' }}>得分：{sessionReportData.score} / 100</div>
+                  <div className="report-score-value">练习参考分：{sessionReportData.score} / 100</div>
                 ) : null}
               </div>
+              <p className="report-disclaimer">该结果用于课后练习反馈，不替代教师的技术评价。</p>
               <div className="report-list">
                 {((sessionReportData && sessionReportData.items.length === 0) || (!sessionReportData && reportItems.length === 0)) ? (
                   <div className="report-note">等待更多检测数据...</div>
@@ -1069,7 +1139,7 @@ function App() {
           )}
 
           {/* 调试面板（折叠/展开） */}
-          <div className="debug-panel">
+          {debugMode && <div className="debug-panel">
             <div className="debug-header">
               <span className="metrics-title">🧾 调试面板</span>
               <button className="btn btn-small" onClick={() => setDebugOpen((s) => !s)}>
@@ -1080,7 +1150,8 @@ function App() {
               <div className="debug-body">
                 <div className="debug-keys">
                   <div>pose 有效: {status === '人体识别正常' ? '是' : '否'}</div>
-                  <div>stick/paddle 检测: {markerValidRef.current ? '是' : stickStatusRef.current === '杆体识别正常' ? '是' : '否'}</div>
+                  {/* eslint-disable-next-line react-hooks/refs -- 检测循环每帧写入的实时值，debug 面板仅作展示 */}
+                  <div>stick/paddle 检测: {markerValidRef.current ? '是' : stickStatus === '杆体识别正常' ? '是' : '否'}</div>
                   <div>stroke phase: {posturePhase}</div>
                   <div>hands distance 有效: {metricsHandRatio !== null ? '是' : '否'}</div>
                   <div>trunk angle 有效: {metricsLean !== null ? '是' : '否'}</div>
@@ -1103,7 +1174,7 @@ function App() {
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(lastDebugText);
-                        } catch (e) {
+                        } catch {
                           const ta = document.createElement('textarea');
                           ta.value = lastDebugText;
                           document.body.appendChild(ta);
@@ -1118,7 +1189,7 @@ function App() {
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
         
 
@@ -1239,12 +1310,14 @@ function App() {
               <button
                 className={`btn-side ${selectedStrokeSide === "right" ? "btn-side-active" : ""}`}
                 onClick={() => setSelectedStrokeSide("right")}
+                aria-pressed={selectedStrokeSide === "right"}
               >
                 右桨
               </button>
               <button
                 className={`btn-side ${selectedStrokeSide === "left" ? "btn-side-active" : ""}`}
                 onClick={() => setSelectedStrokeSide("left")}
+                aria-pressed={selectedStrokeSide === "left"}
               >
                 左桨
               </button>
@@ -1420,7 +1493,22 @@ function App() {
       </div>
 
       {/* 错误提示 */}
-      {errorMessage && <div className="error-msg">{errorMessage}</div>}
+      {errorMessage && (
+        <div className="error-msg" role="alert">
+          <div>{errorMessage}</div>
+          <div className="error-actions">
+            <button className="btn btn-small" onClick={loadDetector} disabled={modelLoading}>
+              {modelLoading ? "正在重新加载…" : "重新加载模型"}
+            </button>
+          </div>
+          {technicalError && (
+            <details className="error-details">
+              <summary>查看技术详情</summary>
+              <pre>{technicalError}</pre>
+            </details>
+          )}
+        </div>
+      )}
     </div>
   );
 }

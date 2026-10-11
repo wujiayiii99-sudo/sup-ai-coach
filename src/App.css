@@ -10,6 +10,8 @@
   padding: 24px 16px;
   gap: 16px;
   overflow-x: hidden;
+  /* 平台整体改为浅色主题后，模块 4 的 AI 评分界面仍保持深色背景 */
+  background: #0f0f23;
 }
 
 /* ---- 标题 ---- */

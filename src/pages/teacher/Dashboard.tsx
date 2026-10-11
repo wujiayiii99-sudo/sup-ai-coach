@@ -40,7 +40,7 @@ interface PracticeRecord {
 interface PageViewRecord {
   student_id: string;
   page_path: string;
-  created_at: string;
+  viewed_at: string;
 }
 
 export default function Dashboard() {
@@ -70,7 +70,7 @@ export default function Dashboard() {
       supabase
         .from("practice_scores")
         .select("student_id, posture_score, paddle_score, created_at"),
-      supabase.from("page_views").select("student_id, page_path, created_at"),
+      supabase.from("page_views").select("student_id, page_path, viewed_at"),
     ]).then((res) => {
       if (cancelled) return;
       const msgs = res.map((r) => r.error?.message).filter(Boolean);
@@ -130,9 +130,9 @@ export default function Dashboard() {
     const lastByStudent = new Map<string, string>();
     for (const v of pageViews) {
       const curFirst = firstByStudent.get(v.student_id);
-      if (!curFirst || v.created_at < curFirst) firstByStudent.set(v.student_id, v.created_at);
+      if (!curFirst || v.viewed_at < curFirst) firstByStudent.set(v.student_id, v.viewed_at);
       const curLast = lastByStudent.get(v.student_id);
-      if (!curLast || v.created_at > curLast) lastByStudent.set(v.student_id, v.created_at);
+      if (!curLast || v.viewed_at > curLast) lastByStudent.set(v.student_id, v.viewed_at);
     }
 
     return students.map((s) => {

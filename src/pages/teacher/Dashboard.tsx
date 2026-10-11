@@ -145,6 +145,7 @@ export default function Dashboard() {
       const practiceCount = practiceCountByStudent.get(s.id) ?? 0;
       const q1 = quiz?.get(1);
       const q3 = quiz?.get(3);
+      const q5 = quiz?.get(5);
       return {
         id: s.id,
         studentNo: s.student_no,
@@ -155,8 +156,10 @@ export default function Dashboard() {
         status2: statusOf(2),
         status3: statusOf(3),
         status4: practiceCount > 0 ? "completed" : "not_started",
+        status5: statusOf(5),
         quiz1: q1 ? { score: q1.score, total: q1.total } : null,
         quiz3: q3 ? { score: q3.score, total: q3.total } : null,
+        quiz5: q5 ? { score: q5.score, total: q5.total } : null,
         practiceCount,
       };
     });
@@ -191,6 +194,11 @@ export default function Dashboard() {
       {
         name: "模块4",
         已完成: studentRows.filter((r) => r.status4 === "completed").length,
+        总人数: studentRows.length,
+      },
+      {
+        name: "模块5",
+        已完成: studentRows.filter((r) => r.status5 === "completed").length,
         总人数: studentRows.length,
       },
     ],
@@ -241,8 +249,10 @@ export default function Dashboard() {
       "模块2状态",
       "模块3状态",
       "模块4状态",
+      "模块5状态",
       "模块1测验成绩",
       "模块3测验成绩",
+      "模块5测验成绩",
       "模块4练习次数",
     ];
     const rows = studentRows.map((r) => [
@@ -254,8 +264,10 @@ export default function Dashboard() {
       MODULE_STATUS_LABEL[r.status2],
       MODULE_STATUS_LABEL[r.status3],
       MODULE_STATUS_LABEL[r.status4],
+      MODULE_STATUS_LABEL[r.status5],
       r.quiz1 ? `${r.quiz1.score}/${r.quiz1.total}` : "—",
       r.quiz3 ? `${r.quiz3.score}/${r.quiz3.total}` : "—",
+      r.quiz5 ? `${r.quiz5.score}/${r.quiz5.total}` : "—",
       String(r.practiceCount),
     ]);
     const d = new Date();

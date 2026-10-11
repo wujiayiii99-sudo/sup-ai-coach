@@ -12,8 +12,10 @@ export interface StudentRow {
   status2: ModuleStatus;
   status3: ModuleStatus;
   status4: ModuleStatus;
+  status5: ModuleStatus;
   quiz1: { score: number; total: number } | null;
   quiz3: { score: number; total: number } | null;
+  quiz5: { score: number; total: number } | null;
   practiceCount: number;
 }
 
@@ -117,8 +119,10 @@ export default function StudentTable({ rows }: { rows: StudentRow[] }) {
               <th>模块2</th>
               <th>模块3</th>
               <th>模块4</th>
+              <th>模块5</th>
               <th>模块1测验</th>
               <th>模块3测验</th>
+              <th>模块5测验</th>
               <th>模块4练习</th>
             </tr>
           </thead>
@@ -141,14 +145,18 @@ export default function StudentTable({ rows }: { rows: StudentRow[] }) {
                 <td>
                   <StatusBadge status={r.status4} />
                 </td>
+                <td>
+                  <StatusBadge status={r.status5} />
+                </td>
                 <td>{r.quiz1 ? `${r.quiz1.score}/${r.quiz1.total}` : "—"}</td>
                 <td>{r.quiz3 ? `${r.quiz3.score}/${r.quiz3.total}` : "—"}</td>
+                <td>{r.quiz5 ? `${r.quiz5.score}/${r.quiz5.total}` : "—"}</td>
                 <td>{r.practiceCount}</td>
               </tr>
             ))}
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={11} className="table-empty">
+                <td colSpan={13} className="table-empty">
                   暂无数据
                 </td>
               </tr>

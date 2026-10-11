@@ -10,7 +10,7 @@ export interface ModuleInfo {
   path: string;
 }
 
-/** 4 个模块的元数据，供首页卡片、导航、占位页共用 */
+/** 5 个模块的元数据，供首页卡片、导航、占位页共用 */
 export const MODULES: ModuleInfo[] = [
   {
     no: 1,
@@ -43,6 +43,14 @@ export const MODULES: ModuleInfo[] = [
     pageTitle: "直线划行陪练",
     description: "摄像头实时姿态分析与评分",
     path: "/module/4",
+  },
+  {
+    no: 5,
+    name: "模块 5 · 绕标技术",
+    navLabel: "绕标技术",
+    pageTitle: "绕标技术画图题",
+    description: "在桨板图上画出转弯与横拉的桨法轨迹",
+    path: "/module/5",
   },
 ];
 

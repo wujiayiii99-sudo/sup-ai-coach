@@ -15,7 +15,7 @@ interface CompletionDatum {
   总人数: number;
 }
 
-/** 班级完成率：4 个模块「已完成人数 / 总人数」柱状图 */
+/** 班级完成率：5 个模块「已完成人数 / 总人数」柱状图 */
 export default function ModuleCompletionChart({
   data,
 }: {

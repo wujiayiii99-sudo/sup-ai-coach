@@ -801,3 +801,374 @@
     gap: 8px;
   }
 }
+
+/* ================================================================
+   第三期：首页 hero 轮播 + 模块页横幅 + 教师后台
+   ================================================================ */
+
+/* ---- 首页 hero 轮播 ---- */
+.hero {
+  position: relative;
+  height: 400px;
+  overflow: hidden;
+}
+
+.hero-slide {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 1s ease;
+}
+
+.hero-slide.active {
+  opacity: 1;
+}
+
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.hero-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  padding: 20px;
+  z-index: 2;
+}
+
+.hero-title {
+  font-size: 2.4rem;
+  font-weight: 700;
+  margin: 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.hero-subtitle {
+  margin-top: 12px;
+  font-size: 1.15rem;
+  opacity: 0.95;
+  letter-spacing: 0.06em;
+}
+
+.hero-dots {
+  position: absolute;
+  bottom: 18px;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  z-index: 3;
+}
+
+.hero-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: none;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.hero-dot.active {
+  background: #ffffff;
+}
+
+/* ---- 模块页顶部横幅 ---- */
+.module-banner {
+  position: relative;
+  height: 200px;
+  background-size: cover;
+  background-position: center;
+}
+
+.module-banner-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.module-banner-content {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: #ffffff;
+  padding: 20px;
+}
+
+.module-banner-title {
+  font-size: 1.7rem;
+  font-weight: 700;
+  margin: 0;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.module-banner-subtitle {
+  margin-top: 8px;
+  font-size: 1rem;
+  opacity: 0.95;
+}
+
+/* ---- 教师后台 ---- */
+.teacher-dashboard {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.teacher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.teacher-title {
+  font-size: 1.5rem;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.teacher-loading,
+.teacher-error {
+  text-align: center;
+  color: #666;
+  padding: 40px 0;
+}
+
+.teacher-error {
+  color: #d64545;
+}
+
+.teacher-section {
+  margin-bottom: 28px;
+}
+
+.teacher-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.teacher-section-title {
+  font-size: 1.2rem;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+/* 概览卡片 */
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.overview-card {
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 18px 20px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.overview-label {
+  font-size: 0.85rem;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.overview-value {
+  font-size: 1.7rem;
+  font-weight: 700;
+  color: #0066cc;
+}
+
+.overview-suffix {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: #888;
+  margin-left: 4px;
+}
+
+/* 学生表格 */
+.student-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.student-table-search {
+  padding: 8px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  min-width: 220px;
+  background: #ffffff;
+}
+
+.student-table-search:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.student-table-count {
+  color: #666;
+  font-size: 0.85rem;
+}
+
+.teacher-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.teacher-table th,
+.teacher-table td {
+  border: 1px solid #e5e5e5;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.teacher-table th {
+  background: #eef3f8;
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.teacher-table th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.teacher-table th.sortable:hover {
+  color: #0066cc;
+}
+
+.teacher-table tbody tr:nth-child(even) {
+  background: #fafafa;
+}
+
+.teacher-table tbody tr:hover {
+  background: #f0f6ff;
+}
+
+.table-empty {
+  text-align: center;
+  color: #999;
+  padding: 20px;
+}
+
+.student-table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 14px;
+  color: #555;
+  font-size: 0.9rem;
+}
+
+.student-table-pagination .btn-secondary {
+  padding: 6px 16px;
+  font-size: 0.85rem;
+}
+
+/* 图表卡片 */
+.chart-card {
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+.chart-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.chart-title {
+  font-size: 1.1rem;
+  color: #1a1a1a;
+  margin: 0 0 16px;
+}
+
+.chart-card-header .chart-title {
+  margin-bottom: 0;
+}
+
+.chart-wrap {
+  width: 100%;
+}
+
+.chart-empty {
+  color: #999;
+  padding: 20px 0;
+  text-align: center;
+  margin: 0;
+}
+
+.progress-select {
+  padding: 7px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #ffffff;
+  color: #333;
+}
+
+/* ---- 移动端 ---- */
+@media (max-width: 768px) {
+  .hero {
+    height: 240px;
+  }
+
+  .hero-title {
+    font-size: 1.6rem;
+  }
+
+  .hero-subtitle {
+    font-size: 0.95rem;
+  }
+
+  .module-banner-title {
+    font-size: 1.3rem;
+  }
+
+  .overview-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .teacher-dashboard {
+    padding: 16px 12px 40px;
+  }
+}

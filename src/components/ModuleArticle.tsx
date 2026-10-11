@@ -1,13 +1,17 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ContentSection } from "../data/module1-content";
 import type { Video } from "../data/videos";
+import PageBanner from "./PageBanner";
 
 interface ModuleArticleProps {
   title: string;
   sections: ContentSection[];
-  quizPath: string;
+  quizPath?: string;
   video?: Video;
+  bannerImage?: string;
+  bannerSubtitle?: string;
+  renderAfterSection?: (section: ContentSection) => ReactNode;
 }
 
 interface Lightbox {
@@ -108,53 +112,69 @@ function SectionBlock({
   );
 }
 
-/** 图文教学页：章节目录 + 图文混排 + 图片放大 + 测验按钮 + 底部视频 */
+/** 图文教学页：顶部横幅 + 章节目录 + 图文混排 + 图片放大 + 测验按钮 + 视频 */
 export default function ModuleArticle({
   title,
   sections,
   quizPath,
   video,
+  bannerImage,
+  bannerSubtitle,
+  renderAfterSection,
 }: ModuleArticleProps) {
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
 
   return (
-    <div className="article-page">
-      <header className="article-header">
-        <h1 className="article-title">{title}</h1>
-      </header>
+    <>
+      {bannerImage && (
+        <PageBanner image={bannerImage} title={title} subtitle={bannerSubtitle} />
+      )}
 
-      <div className="article-body">
-        <nav className="article-toc">
-          <div className="toc-title">目录</div>
-          <ul>
+      <div className="article-page">
+        {!bannerImage && (
+          <header className="article-header">
+            <h1 className="article-title">{title}</h1>
+          </header>
+        )}
+
+        <div className="article-body">
+          <nav className="article-toc">
+            <div className="toc-title">目录</div>
+            <ul>
+              {sections.map((s) => (
+                <li key={s.id}>
+                  <a href={`#${s.id}`}>{s.title}</a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+
+          <div className="article-main">
             {sections.map((s) => (
-              <li key={s.id}>
-                <a href={`#${s.id}`}>{s.title}</a>
-              </li>
+              <div key={s.id}>
+                <SectionBlock section={s} depth={0} onOpen={setLightbox} />
+                {renderAfterSection?.(s)}
+              </div>
             ))}
-          </ul>
-        </nav>
 
-        <div className="article-main">
-          {sections.map((s) => (
-            <SectionBlock key={s.id} section={s} depth={0} onOpen={setLightbox} />
-          ))}
+            {quizPath && (
+              <div className="article-actions">
+                <Link className="btn-primary" to={quizPath}>
+                  开始测验
+                </Link>
+              </div>
+            )}
 
-          <div className="article-actions">
-            <Link className="btn-primary" to={quizPath}>
-              开始测验
-            </Link>
+            {video && (
+              <div className="video-block">
+                <h2 className="video-block-title">教学视频：{video.title}</h2>
+                <div
+                  className="video-embed"
+                  dangerouslySetInnerHTML={{ __html: video.iframe }}
+                />
+              </div>
+            )}
           </div>
-
-          {video && (
-            <div className="video-block">
-              <h2 className="video-block-title">教学视频：{video.title}</h2>
-              <div
-                className="video-embed"
-                dangerouslySetInnerHTML={{ __html: video.iframe }}
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -173,6 +193,6 @@ export default function ModuleArticle({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

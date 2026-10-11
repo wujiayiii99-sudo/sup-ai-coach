@@ -59,6 +59,9 @@ import { computeStrokeMetrics } from "../bodyStroke/bodyStrokeMetrics";
 import { StrokeTracker } from "../bodyStroke/bodyStrokeTracker";
 import { StrokePhaseMachine } from "../bodyStroke/bodyStrokePhases";
 import type { BodyStrokeMetrics, StrokeSide, CalibrationStatus, PhaseState, StrokePhase } from "../bodyStroke/bodyStrokeTypes";
+import { supabase } from "../lib/supabase";
+import { useStudent } from "../contexts/StudentContext";
+import PageBanner from "../components/PageBanner";
 import "../App.css";
 
 /** 应用状态类型 */
@@ -79,6 +82,8 @@ const STATUS_DOT_CLASS: Record<AppStatus, string> = {
 };
 
 function Module4() {
+  const { student } = useStudent();
+
   // ---- 状态 ----
   const [status, setStatus] = useState<AppStatus>("模型加载中");
   const [fps, setFps] = useState(0);
@@ -524,6 +529,30 @@ function Module4() {
           score: Math.max(0, Math.min(100, finalScore)),
           validStrokes: strokeCount,
         });
+
+        // 任务 5：评分完成后写入 practice_scores（不改动评分逻辑）
+        if (student) {
+          const detail = {
+            finalScore,
+            strokeCount,
+            qualityScore,
+            activityScore,
+            side: activeSide,
+            items,
+          };
+          supabase
+            .from("practice_scores")
+            .insert({
+              student_id: student.id,
+              posture_score: qualityScore,
+              paddle_score: activityScore,
+              duration_sec: Math.min(elapsedSeconds, 15),
+              detail,
+            })
+            .then(({ error }) => {
+              if (error) console.warn("写入练习成绩失败", error);
+            });
+        }
       }
     }, 250);
     return () => window.clearInterval(id);
@@ -1042,8 +1071,10 @@ function Module4() {
   // ================================================================
 
   return (
-    <div className="app">
-      <h1 className="app-title">桨板直线划行 AI 动作教练</h1>
+    <>
+      <PageBanner image="/images/photos/module4-1.jpg" title="直线划行陪练" />
+      <div className="app">
+        <h1 className="app-title">桨板直线划行 AI 动作教练</h1>
 
       <p className="app-description">
         通过摄像头识别徒手划桨动作，从站姿、双手配合、躯干控制和动作节奏等方面提供练习建议。
@@ -1513,7 +1544,8 @@ function Module4() {
           )}
         </div>
       )}
-    </div>
+      </div>
+    </>
   );
 }
 

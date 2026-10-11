@@ -30,7 +30,7 @@ export default function NavBar() {
               `navbar-link ${isActive ? "active" : ""}`
             }
           >
-            模块{m.no}
+            {m.navLabel}
           </NavLink>
         ))}
       </div>

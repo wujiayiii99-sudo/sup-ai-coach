@@ -5,7 +5,8 @@ import { VIDEOS } from "../data/videos";
 export default function Module3() {
   return (
     <ModuleArticle
-      title="模块 3 · 水上安全"
+      title="桨板安全知识"
+      bannerImage="/images/photos/module3-1.jpg"
       sections={module3Content}
       video={VIDEOS[1]}
       quizPath="/module/3/quiz"

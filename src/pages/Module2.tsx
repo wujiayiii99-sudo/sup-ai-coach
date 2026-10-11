@@ -51,6 +51,11 @@ export default function Module2() {
       bannerImage="/images/photos/module2-1.jpg"
       sections={module2Content}
       renderAfterSection={renderAfterSection}
+      tocVideoMap={{
+        "2-2": VIDEOS[2].title,
+        "2-3": VIDEOS[4].title,
+        "2-4": VIDEOS[3].title,
+      }}
     />
   );
 }

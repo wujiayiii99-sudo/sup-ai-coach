@@ -376,6 +376,32 @@
   color: #0066cc;
 }
 
+.article-toc .toc-video {
+  display: block;
+  padding: 0 8px 4px;
+  font-size: 0.74rem;
+  color: #999;
+  line-height: 1.4;
+}
+
+.article-toc .toc-quiz {
+  display: block;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #ff8800;
+  color: #ffffff;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.article-toc .toc-quiz:hover {
+  background: #e67800;
+  color: #ffffff;
+}
+
 .article-main {
   min-width: 0;
 }

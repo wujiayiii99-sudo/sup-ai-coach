@@ -12,6 +12,7 @@ interface ModuleArticleProps {
   bannerImage?: string;
   bannerSubtitle?: string;
   renderAfterSection?: (section: ContentSection) => ReactNode;
+  tocVideoMap?: Record<string, string>;
 }
 
 interface Lightbox {
@@ -121,6 +122,7 @@ export default function ModuleArticle({
   bannerImage,
   bannerSubtitle,
   renderAfterSection,
+  tocVideoMap,
 }: ModuleArticleProps) {
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
 
@@ -144,8 +146,20 @@ export default function ModuleArticle({
               {sections.map((s) => (
                 <li key={s.id}>
                   <a href={`#${s.id}`}>{s.title}</a>
+                  {tocVideoMap?.[s.id] && (
+                    <span className="toc-video">
+                      📹 教学视频：{tocVideoMap[s.id]}
+                    </span>
+                  )}
                 </li>
               ))}
+              {quizPath && (
+                <li>
+                  <Link className="toc-quiz" to={quizPath}>
+                    开始测验
+                  </Link>
+                </li>
+              )}
             </ul>
           </nav>
 

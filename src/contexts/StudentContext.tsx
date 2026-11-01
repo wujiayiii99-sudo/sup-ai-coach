@@ -5,6 +5,7 @@ export interface Student {
   id: string;
   student_no: string;
   name: string;
+  class_name: string;
 }
 
 interface StudentContextValue {
@@ -26,7 +27,8 @@ function readStudentFromStorage(): Student | null {
       parsed &&
       typeof parsed.id === "string" &&
       typeof parsed.student_no === "string" &&
-      typeof parsed.name === "string"
+      typeof parsed.name === "string" &&
+      typeof parsed.class_name === "string"
     ) {
       return parsed;
     }

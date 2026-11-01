@@ -17,6 +17,7 @@ interface StudentRecord {
   id: string;
   student_no: string;
   name: string;
+  class_name: string | null;
   last_seen_at: string | null;
 }
 interface ProgressRecord {
@@ -51,6 +52,7 @@ export default function Dashboard() {
   const [practices, setPractices] = useState<PracticeRecord[]>([]);
   const [pageViews, setPageViews] = useState<PageViewRecord[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
+  const [classFilter, setClassFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,7 +63,7 @@ export default function Dashboard() {
     Promise.all([
       supabase
         .from("students")
-        .select("id, student_no, name, last_seen_at")
+        .select("id, student_no, name, class_name, last_seen_at")
         .order("student_no", { ascending: true }),
       supabase.from("module_progress").select("student_id, module_no, status"),
       supabase
@@ -150,6 +152,7 @@ export default function Dashboard() {
         id: s.id,
         studentNo: s.student_no,
         name: s.name,
+        className: s.class_name,
         firstVisit: firstByStudent.get(s.id) ?? null,
         lastActive: lastByStudent.get(s.id) ?? s.last_seen_at,
         status1: statusOf(1),
@@ -165,44 +168,60 @@ export default function Dashboard() {
     });
   }, [students, progress, quizzes, practices, pageViews]);
 
-  const selectedId = selectedStudentId || (studentRows[0]?.id ?? "");
+  const classOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of students) {
+      const c = (s.class_name ?? "").trim();
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort();
+  }, [students]);
+
+  const filteredRows = useMemo(() => {
+    if (!classFilter) return studentRows;
+    return studentRows.filter((r) => r.className === classFilter);
+  }, [studentRows, classFilter]);
+
+  const selectedId = selectedStudentId || (filteredRows[0]?.id ?? "");
 
   const overview = useMemo(() => {
-    const total = studentRows.length;
-    const m1 = studentRows.filter((r) => r.status1 === "completed").length;
-    const m3 = studentRows.filter((r) => r.status3 === "completed").length;
-    return { total, m1, m3, m4: practices.length };
-  }, [studentRows, practices]);
+    const ids = new Set(filteredRows.map((r) => r.id));
+    const total = filteredRows.length;
+    const m1 = filteredRows.filter((r) => r.status1 === "completed").length;
+    const m3 = filteredRows.filter((r) => r.status3 === "completed").length;
+    const m4 = practices.filter((p) => ids.has(p.student_id)).length;
+    return { total, m1, m3, m4 };
+  }, [filteredRows, practices]);
 
   const completionData = useMemo(
     () => [
       {
         name: "模块1",
-        已完成: studentRows.filter((r) => r.status1 === "completed").length,
-        总人数: studentRows.length,
+        已完成: filteredRows.filter((r) => r.status1 === "completed").length,
+        总人数: filteredRows.length,
       },
       {
         name: "模块2",
-        已完成: studentRows.filter((r) => r.status2 === "completed").length,
-        总人数: studentRows.length,
+        已完成: filteredRows.filter((r) => r.status2 === "completed").length,
+        总人数: filteredRows.length,
       },
       {
         name: "模块3",
-        已完成: studentRows.filter((r) => r.status3 === "completed").length,
-        总人数: studentRows.length,
+        已完成: filteredRows.filter((r) => r.status3 === "completed").length,
+        总人数: filteredRows.length,
       },
       {
         name: "模块4",
-        已完成: studentRows.filter((r) => r.status4 === "completed").length,
-        总人数: studentRows.length,
+        已完成: filteredRows.filter((r) => r.status4 === "completed").length,
+        总人数: filteredRows.length,
       },
       {
         name: "模块5",
-        已完成: studentRows.filter((r) => r.status5 === "completed").length,
-        总人数: studentRows.length,
+        已完成: filteredRows.filter((r) => r.status5 === "completed").length,
+        总人数: filteredRows.length,
       },
     ],
-    [studentRows]
+    [filteredRows]
   );
 
   const pageViewData = useMemo(() => {
@@ -214,8 +233,8 @@ export default function Dashboard() {
   }, [pageViews]);
 
   const progressStudents = useMemo(
-    () => studentRows.map((r) => ({ id: r.id, name: r.name, studentNo: r.studentNo })),
-    [studentRows]
+    () => filteredRows.map((r) => ({ id: r.id, name: r.name, studentNo: r.studentNo })),
+    [filteredRows]
   );
 
   const progressData = useMemo(() => {
@@ -243,6 +262,7 @@ export default function Dashboard() {
     const headers = [
       "学号",
       "姓名",
+      "班级",
       "首次访问",
       "最后活跃",
       "模块1状态",
@@ -255,9 +275,10 @@ export default function Dashboard() {
       "模块5测验成绩",
       "模块4练习次数",
     ];
-    const rows = studentRows.map((r) => [
+    const rows = filteredRows.map((r) => [
       r.studentNo,
       r.name,
+      r.className ?? "",
       formatDateTime(r.firstVisit),
       formatDateTime(r.lastActive),
       MODULE_STATUS_LABEL[r.status1],
@@ -294,6 +315,31 @@ export default function Dashboard() {
         <p className="teacher-error">数据加载失败：{error}</p>
       ) : (
         <>
+          <div className="teacher-filter-bar">
+            <label className="teacher-filter-label" htmlFor="class-filter">
+              按班级筛选：
+            </label>
+            <select
+              id="class-filter"
+              className="progress-select"
+              value={classFilter}
+              onChange={(e) => {
+                setClassFilter(e.target.value);
+                setSelectedStudentId("");
+              }}
+            >
+              <option value="">全部班级</option>
+              {classOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <span className="teacher-filter-count">
+              当前显示 {filteredRows.length} 人
+            </span>
+          </div>
+
           <OverviewCards
             totalStudents={overview.total}
             module1Done={overview.m1}
@@ -308,7 +354,7 @@ export default function Dashboard() {
                 导出学生数据 CSV
               </button>
             </div>
-            <StudentTable rows={studentRows} />
+            <StudentTable rows={filteredRows} />
           </section>
 
           <ModuleCompletionChart data={completionData} />

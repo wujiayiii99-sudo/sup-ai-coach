@@ -11,6 +11,9 @@ import Module4 from "./pages/Module4";
 import Module5 from "./pages/Module5";
 import Module1Quiz from "./pages/module1/Quiz";
 import Module3Quiz from "./pages/module3/Quiz";
+import ForumList from "./pages/forum/ForumList";
+import ForumNew from "./pages/forum/ForumNew";
+import ForumDetail from "./pages/forum/ForumDetail";
 import TeacherLogin from "./pages/TeacherLogin";
 import TeacherDashboard from "./pages/TeacherDashboard";
 import TurnDrawing from "./pages/demo/TurnDrawing";
@@ -35,6 +38,9 @@ export default function App() {
               <Route path="/module/3/quiz" element={<Module3Quiz />} />
               <Route path="/module/4" element={<Module4 />} />
               <Route path="/module/5" element={<Module5 />} />
+              <Route path="/forum" element={<ForumList />} />
+              <Route path="/forum/new" element={<ForumNew />} />
+              <Route path="/forum/:id" element={<ForumDetail />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

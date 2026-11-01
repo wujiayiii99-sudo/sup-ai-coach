@@ -6,6 +6,7 @@ export interface StudentRow {
   id: string;
   studentNo: string;
   name: string;
+  className: string | null;
   firstVisit: string | null;
   lastActive: string | null;
   status1: ModuleStatus;
@@ -109,6 +110,7 @@ export default function StudentTable({ rows }: { rows: StudentRow[] }) {
                 学号{sortArrow("studentNo")}
               </th>
               <th>姓名</th>
+              <th>班级</th>
               <th>首次访问</th>
               <th className="sortable" onClick={() => toggleSort("lastActive")}>
                 最后活跃{sortArrow("lastActive")}
@@ -131,6 +133,7 @@ export default function StudentTable({ rows }: { rows: StudentRow[] }) {
               <tr key={r.id}>
                 <td>{r.studentNo}</td>
                 <td>{r.name}</td>
+                <td>{r.className || "—"}</td>
                 <td>{formatDateTime(r.firstVisit)}</td>
                 <td>{formatDateTime(r.lastActive)}</td>
                 <td>
@@ -156,7 +159,7 @@ export default function StudentTable({ rows }: { rows: StudentRow[] }) {
             ))}
             {pageRows.length === 0 && (
               <tr>
-                <td colSpan={13} className="table-empty">
+                <td colSpan={14} className="table-empty">
                   暂无数据
                 </td>
               </tr>

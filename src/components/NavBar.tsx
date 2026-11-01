@@ -33,6 +33,14 @@ export default function NavBar() {
             {m.navLabel}
           </NavLink>
         ))}
+        <NavLink
+          to="/forum"
+          className={({ isActive }) =>
+            `navbar-link ${isActive ? "active" : ""}`
+          }
+        >
+          答疑园地
+        </NavLink>
       </div>
       {student && (
         <div className="navbar-user">

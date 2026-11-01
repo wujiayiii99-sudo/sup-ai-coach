@@ -1198,3 +1198,373 @@
     padding: 16px 12px 40px;
   }
 }
+
+/* ================================================================
+   第四期：答疑园地（论坛）+ 班级字段/筛选
+   ================================================================ */
+
+/* ---- 模块 3 底部提问按钮 ---- */
+.forum-cta {
+  margin: 32px 0 8px;
+  text-align: center;
+}
+
+.btn-forum-cta {
+  display: inline-block;
+  padding: 14px 30px;
+  border-radius: 12px;
+  background: #ff8800;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(255, 136, 0, 0.35);
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.btn-forum-cta:hover {
+  background: #e67800;
+  color: #ffffff;
+  box-shadow: 0 6px 18px rgba(255, 136, 0, 0.45);
+}
+
+/* ---- 答疑园地页面 ---- */
+.forum-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 28px 20px 60px;
+}
+
+.forum-page-narrow {
+  max-width: 760px;
+}
+
+.forum-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.forum-title {
+  font-size: 1.5rem;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.forum-subtitle {
+  color: #666;
+  margin: 6px 0 0;
+}
+
+.forum-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.forum-search {
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  max-width: 360px;
+  background: #ffffff;
+}
+
+.forum-search:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.forum-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.forum-filter-chip {
+  padding: 6px 14px;
+  border: 1px solid #d0d0d0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #555;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.forum-filter-chip:hover {
+  border-color: #0066cc;
+  color: #0066cc;
+}
+
+.forum-filter-chip.active {
+  background: #0066cc;
+  border-color: #0066cc;
+  color: #ffffff;
+}
+
+.forum-loading,
+.forum-error,
+.forum-empty {
+  color: #666;
+  padding: 24px 0;
+}
+
+.forum-error {
+  color: #d64545;
+}
+
+.forum-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.forum-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  background: #ffffff;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.forum-card:hover {
+  border-color: #0066cc;
+  box-shadow: 0 4px 12px rgba(0, 102, 204, 0.12);
+}
+
+.forum-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.forum-card-author {
+  color: #888;
+  font-size: 0.8rem;
+}
+
+.forum-card-title {
+  font-size: 1.05rem;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.forum-card-time {
+  color: #999;
+  font-size: 0.78rem;
+}
+
+.forum-tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.forum-tag-equipment {
+  color: #0066cc;
+  background: #e6f0fb;
+}
+
+.forum-tag-safety {
+  color: #b87700;
+  background: #fff3e0;
+}
+
+.forum-tag-technique {
+  color: #2e9e5b;
+  background: #eafaf0;
+}
+
+.forum-tag-other {
+  color: #6b4f9e;
+  background: #f0ecfa;
+}
+
+/* 发帖表单 */
+.forum-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.forum-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.forum-field input,
+.forum-field select,
+.forum-field textarea {
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1a1a1a;
+  font-size: 1rem;
+  font-family: inherit;
+}
+
+.forum-field input:focus,
+.forum-field select:focus,
+.forum-field textarea:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.forum-field textarea {
+  resize: vertical;
+}
+
+.forum-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* 详情页 */
+.forum-detail-nav {
+  margin-bottom: 16px;
+}
+
+.forum-post {
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+
+.forum-post-head {
+  margin-bottom: 16px;
+}
+
+.forum-post-title {
+  font-size: 1.4rem;
+  color: #1a1a1a;
+  margin: 12px 0 8px;
+}
+
+.forum-post-meta {
+  display: flex;
+  gap: 8px;
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.forum-post-content {
+  color: #333;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.forum-replies-title {
+  font-size: 1.1rem;
+  color: #1a1a1a;
+  margin: 0 0 14px;
+}
+
+.forum-reply-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  margin: 0 0 20px;
+}
+
+.forum-reply {
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 14px 16px;
+}
+
+.forum-reply-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.forum-reply-author {
+  color: #0066cc;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.forum-reply-time {
+  color: #999;
+  font-size: 0.78rem;
+}
+
+.forum-reply-content {
+  color: #333;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.forum-reply-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.forum-reply-form textarea {
+  padding: 10px 12px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+  background: #ffffff;
+}
+
+.forum-reply-form textarea:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+/* ---- 教师后台：班级筛选栏 ---- */
+.teacher-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+}
+
+.teacher-filter-label {
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.teacher-filter-count {
+  color: #888;
+  font-size: 0.85rem;
+  margin-left: auto;
+}

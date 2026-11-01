@@ -13,6 +13,7 @@ interface ModuleArticleProps {
   bannerSubtitle?: string;
   renderAfterSection?: (section: ContentSection) => ReactNode;
   tocVideoMap?: Record<string, string>;
+  footer?: ReactNode;
 }
 
 interface Lightbox {
@@ -123,6 +124,7 @@ export default function ModuleArticle({
   bannerSubtitle,
   renderAfterSection,
   tocVideoMap,
+  footer,
 }: ModuleArticleProps) {
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
 
@@ -188,6 +190,8 @@ export default function ModuleArticle({
                 />
               </div>
             )}
+
+            {footer}
           </div>
         </div>
       </div>

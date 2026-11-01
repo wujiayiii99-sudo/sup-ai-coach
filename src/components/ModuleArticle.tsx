@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { ContentSection } from "../data/module1-content";
 import type { Video } from "../data/videos";
 import PageBanner from "./PageBanner";
+import VideoWatchButton from "./VideoWatchButton";
 
 interface ModuleArticleProps {
   title: string;
@@ -13,6 +14,7 @@ interface ModuleArticleProps {
   bannerSubtitle?: string;
   renderAfterSection?: (section: ContentSection) => ReactNode;
   tocVideoMap?: Record<string, string>;
+  videoWatch?: boolean;
 }
 
 interface Lightbox {
@@ -123,6 +125,7 @@ export default function ModuleArticle({
   bannerSubtitle,
   renderAfterSection,
   tocVideoMap,
+  videoWatch,
 }: ModuleArticleProps) {
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
 
@@ -189,6 +192,7 @@ export default function ModuleArticle({
                   className="video-embed"
                   dangerouslySetInnerHTML={{ __html: video.iframe }}
                 />
+                {videoWatch && <VideoWatchButton videoId={video.bv} />}
               </div>
             )}
           </div>

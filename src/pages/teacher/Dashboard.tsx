@@ -13,6 +13,8 @@ import ModuleCompletionChart from "../../components/teacher/ModuleCompletionChar
 import ProgressChart from "../../components/teacher/ProgressChart";
 import PageViewStats from "../../components/teacher/PageViewStats";
 import ForumManage from "../../components/teacher/ForumManage";
+import QuizAnalysis from "../../components/teacher/QuizAnalysis";
+import ClassReport from "../../components/teacher/ClassReport";
 
 interface StudentRecord {
   id: string;
@@ -31,7 +33,12 @@ interface QuizRecord {
   module_no: number;
   score: number;
   total: number;
+  answers?: unknown;
   created_at: string;
+}
+interface VideoWatchRecord {
+  student_id: string;
+  video_id: string;
 }
 interface PracticeRecord {
   student_id: string;
@@ -52,6 +59,7 @@ export default function Dashboard() {
   const [quizzes, setQuizzes] = useState<QuizRecord[]>([]);
   const [practices, setPractices] = useState<PracticeRecord[]>([]);
   const [pageViews, setPageViews] = useState<PageViewRecord[]>([]);
+  const [videoWatches, setVideoWatches] = useState<VideoWatchRecord[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState("");
   const [classFilter, setClassFilter] = useState("");
   const [loading, setLoading] = useState(true);
@@ -69,11 +77,12 @@ export default function Dashboard() {
       supabase.from("module_progress").select("student_id, module_no, status"),
       supabase
         .from("quiz_scores")
-        .select("student_id, module_no, score, total, created_at"),
+        .select("student_id, module_no, score, total, answers, created_at"),
       supabase
         .from("practice_scores")
         .select("student_id, posture_score, paddle_score, created_at"),
       supabase.from("page_views").select("student_id, page_path, viewed_at"),
+      supabase.from("video_watches").select("student_id, video_id"),
     ]).then((res) => {
       if (cancelled) return;
       const msgs = res.map((r) => r.error?.message).filter(Boolean);
@@ -85,6 +94,7 @@ export default function Dashboard() {
         setQuizzes((res[2].data ?? []) as QuizRecord[]);
         setPractices((res[3].data ?? []) as PracticeRecord[]);
         setPageViews((res[4].data ?? []) as PageViewRecord[]);
+        setVideoWatches((res[5].data ?? []) as VideoWatchRecord[]);
       }
       setLoading(false);
     });
@@ -359,6 +369,18 @@ export default function Dashboard() {
           </section>
 
           <ForumManage />
+
+          <QuizAnalysis
+            students={students}
+            quizzes={quizzes}
+            classFilter={classFilter}
+          />
+
+          <ClassReport
+            students={students}
+            quizzes={quizzes}
+            videoWatches={videoWatches}
+          />
 
           <ModuleCompletionChart data={completionData} />
           <ProgressChart

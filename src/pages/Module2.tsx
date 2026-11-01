@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import ModuleArticle from "../components/ModuleArticle";
+import VideoWatchButton from "../components/VideoWatchButton";
 import { module2Content } from "../data/module2-content";
 import { VIDEOS, type Video } from "../data/videos";
 import type { ContentSection } from "../data/module1-content";
@@ -18,6 +19,7 @@ function SectionVideo({
         className="video-embed"
         dangerouslySetInnerHTML={{ __html: video.iframe }}
       />
+      <VideoWatchButton videoId={video.bv} />
       {link && (
         <div className="video-card-actions">
           <Link className="btn-primary" to={link.to}>

@@ -10,6 +10,7 @@ export default function Module3() {
       sections={module3Content}
       video={VIDEOS[1]}
       quizPath="/module/3/quiz"
+      videoWatch
     />
   );
 }

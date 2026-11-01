@@ -1607,3 +1607,186 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ---- 第二阶段：视频观看按钮 + 测验分析 + 学情报告 ---- */
+.video-watch {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-video-watch {
+  padding: 9px 18px;
+  border: 1px solid #2e9e5b;
+  border-radius: 8px;
+  background: #eafaf0;
+  color: #2e9e5b;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-video-watch:hover:not(:disabled) {
+  background: #d7f3e2;
+}
+
+.btn-video-watch:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+
+.video-watch-error {
+  color: #d64545;
+  font-size: 0.85rem;
+}
+
+/* 测验分析 */
+.quiz-analysis-worst {
+  color: #b87700;
+  font-size: 0.9rem;
+  margin: 0 0 12px;
+}
+
+.quiz-rate-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+}
+
+.quiz-rate-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: #eee;
+  overflow: hidden;
+}
+
+.quiz-rate-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}
+
+.quiz-rate-fill.low {
+  background: #d64545;
+}
+
+.quiz-rate-fill.mid {
+  background: #ff8800;
+}
+
+.quiz-rate-fill.high {
+  background: #2e9e5b;
+}
+
+.quiz-rate-text {
+  width: 42px;
+  text-align: right;
+  color: #333;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* 学情报告 */
+.class-report-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.class-report-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  background: #fafafa;
+}
+
+.class-report-name {
+  font-weight: 600;
+  color: #1a1a1a;
+}
+
+.class-report-count {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.class-report-row .btn-secondary {
+  margin-left: auto;
+  padding: 6px 16px;
+  font-size: 0.85rem;
+}
+
+.report-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  padding: 20px;
+}
+
+.report-modal-inner {
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+}
+
+.report-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.report-modal-title {
+  font-size: 1.2rem;
+  color: #1a1a1a;
+  margin: 0;
+}
+
+.report-modal-close {
+  padding: 6px 16px;
+  border: 1px solid #d0d0d0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #555;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.report-modal-close:hover {
+  color: #0066cc;
+  border-color: #0066cc;
+}
+
+.report-table th {
+  width: 55%;
+  text-align: left;
+  white-space: normal;
+}
+
+.report-table td {
+  white-space: normal;
+}
+
+.report-modal-actions {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+}

@@ -12,6 +12,7 @@ import { formatDateTime } from "../../lib/format";
 import ModuleCompletionChart from "../../components/teacher/ModuleCompletionChart";
 import ProgressChart from "../../components/teacher/ProgressChart";
 import PageViewStats from "../../components/teacher/PageViewStats";
+import ForumManage from "../../components/teacher/ForumManage";
 
 interface StudentRecord {
   id: string;
@@ -356,6 +357,8 @@ export default function Dashboard() {
             </div>
             <StudentTable rows={filteredRows} />
           </section>
+
+          <ForumManage />
 
           <ModuleCompletionChart data={completionData} />
           <ProgressChart

@@ -13,7 +13,6 @@ interface ModuleArticleProps {
   bannerSubtitle?: string;
   renderAfterSection?: (section: ContentSection) => ReactNode;
   tocVideoMap?: Record<string, string>;
-  footer?: ReactNode;
 }
 
 interface Lightbox {
@@ -124,7 +123,6 @@ export default function ModuleArticle({
   bannerSubtitle,
   renderAfterSection,
   tocVideoMap,
-  footer,
 }: ModuleArticleProps) {
   const [lightbox, setLightbox] = useState<Lightbox | null>(null);
 
@@ -144,7 +142,7 @@ export default function ModuleArticle({
         <div className="article-body">
           <nav className="article-toc">
             <div className="toc-title">目录</div>
-            <ul>
+            <ul className="toc-list">
               {sections.map((s) => (
                 <li key={s.id}>
                   <a href={`#${s.id}`}>{s.title}</a>
@@ -155,14 +153,17 @@ export default function ModuleArticle({
                   )}
                 </li>
               ))}
-              {quizPath && (
-                <li>
-                  <Link className="toc-quiz" to={quizPath}>
-                    开始测验
-                  </Link>
-                </li>
-              )}
             </ul>
+            <div className="toc-actions">
+              {quizPath && (
+                <Link className="toc-quiz" to={quizPath}>
+                  开始测验
+                </Link>
+              )}
+              <Link className="toc-forum" to="/forum">
+                💬 去答疑园地提问
+              </Link>
+            </div>
           </nav>
 
           <div className="article-main">
@@ -190,8 +191,6 @@ export default function ModuleArticle({
                 />
               </div>
             )}
-
-            {footer}
           </div>
         </div>
       </div>

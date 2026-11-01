@@ -341,7 +341,10 @@
 
 .article-toc {
   position: sticky;
-  top: 76px;
+  top: calc(54px + 20px);
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
   background: #ffffff;
   border: 1px solid #e5e5e5;
   border-radius: 8px;
@@ -355,11 +358,13 @@
   font-size: 0.95rem;
 }
 
-.article-toc ul {
+.toc-list {
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .article-toc a {
@@ -384,9 +389,17 @@
   line-height: 1.4;
 }
 
-.article-toc .toc-quiz {
+.toc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid #e5e5e5;
+}
+
+.toc-actions .toc-quiz {
   display: block;
-  margin-top: 8px;
   padding: 8px 12px;
   border-radius: 8px;
   background: #ff8800;
@@ -397,8 +410,25 @@
   text-decoration: none;
 }
 
-.article-toc .toc-quiz:hover {
+.toc-actions .toc-quiz:hover {
   background: #e67800;
+  color: #ffffff;
+}
+
+.toc-actions .toc-forum {
+  display: block;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #0066cc;
+  color: #ffffff;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+
+.toc-actions .toc-forum:hover {
+  background: #0055aa;
   color: #ffffff;
 }
 
@@ -808,11 +838,13 @@
 
   .article-toc {
     position: static;
+    max-height: none;
   }
 
-  .article-toc ul {
+  .toc-list {
     flex-direction: row;
     overflow-x: auto;
+    overflow-y: hidden;
     gap: 8px;
     padding-bottom: 4px;
   }
@@ -1203,31 +1235,6 @@
    第四期：答疑园地（论坛）+ 班级字段/筛选
    ================================================================ */
 
-/* ---- 模块 3 底部提问按钮 ---- */
-.forum-cta {
-  margin: 32px 0 8px;
-  text-align: center;
-}
-
-.btn-forum-cta {
-  display: inline-block;
-  padding: 14px 30px;
-  border-radius: 12px;
-  background: #ff8800;
-  color: #ffffff;
-  font-size: 1.05rem;
-  font-weight: 700;
-  text-decoration: none;
-  box-shadow: 0 4px 14px rgba(255, 136, 0, 0.35);
-  transition: background 0.15s, box-shadow 0.15s;
-}
-
-.btn-forum-cta:hover {
-  background: #e67800;
-  color: #ffffff;
-  box-shadow: 0 6px 18px rgba(255, 136, 0, 0.45);
-}
-
 /* ---- 答疑园地页面 ---- */
 .forum-page {
   max-width: 900px;
@@ -1567,4 +1574,36 @@
   color: #888;
   font-size: 0.85rem;
   margin-left: auto;
+}
+
+/* ---- 教师后台：答疑管理 ---- */
+.forum-manage-count {
+  color: #888;
+  font-size: 0.85rem;
+}
+
+.forum-manage-notice {
+  color: #2e9e5b;
+  font-size: 0.9rem;
+  margin: 0 0 12px;
+}
+
+.btn-danger {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: #d64545;
+  color: #ffffff;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #b93a3a;
+}
+
+.btn-danger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

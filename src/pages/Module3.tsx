@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import ModuleArticle from "../components/ModuleArticle";
 import { module3Content } from "../data/module3-content";
 import { VIDEOS } from "../data/videos";
@@ -11,13 +10,6 @@ export default function Module3() {
       sections={module3Content}
       video={VIDEOS[1]}
       quizPath="/module/3/quiz"
-      footer={
-        <div className="forum-cta">
-          <Link className="btn-forum-cta" to="/forum">
-            有不懂的？去答疑园地提问
-          </Link>
-        </div>
-      }
     />
   );
 }

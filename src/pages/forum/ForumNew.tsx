@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { FORUM_CATEGORIES } from "../../lib/forum";
 import { useStudent } from "../../contexts/StudentContext";
+import { toUserFacingMessage } from "../../lib/errorMessage";
 
 export default function ForumNew() {
   const { student } = useStudent();
@@ -37,7 +38,7 @@ export default function ForumNew() {
       .single();
 
     if (insertError) {
-      setError(insertError.message);
+      setError(toUserFacingMessage(insertError));
       setSubmitting(false);
       return;
     }

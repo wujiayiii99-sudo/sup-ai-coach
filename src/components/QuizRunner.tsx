@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useStudent } from "../contexts/StudentContext";
+import { toUserFacingMessage } from "../lib/errorMessage";
 import type { QuizQuestion } from "../data/module1-quiz";
 
 interface QuizRunnerProps {
@@ -86,9 +87,10 @@ export default function QuizRunner({
     ]);
 
     if (scoreRes.error || progRes.error) {
-      setSaveError(
-        [scoreRes.error?.message, progRes.error?.message].filter(Boolean).join("；")
-      );
+      const messages = [scoreRes.error, progRes.error]
+        .filter(Boolean)
+        .map(toUserFacingMessage);
+      setSaveError([...new Set(messages)].join("；"));
     } else {
       setSaved(true);
     }

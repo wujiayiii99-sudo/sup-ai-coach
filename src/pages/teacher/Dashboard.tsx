@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
+import { toErrorMessage } from "../../lib/errorMessage";
 import { isTeacherLoggedIn, teacherLogout } from "../../lib/teacherAuth";
 import { downloadCsv } from "../../lib/exportCsv";
 import { MODULE_STATUS_LABEL, type ModuleStatus } from "../../lib/modules";
@@ -85,9 +86,11 @@ export default function Dashboard() {
       supabase.from("video_watches").select("student_id, video_id"),
     ]).then((res) => {
       if (cancelled) return;
-      const msgs = res.map((r) => r.error?.message).filter(Boolean);
+      const msgs = res
+        .map((r) => (r.error ? toErrorMessage(r.error) : null))
+        .filter((m): m is string => Boolean(m));
       if (msgs.length > 0) {
-        setError(msgs.join("；"));
+        setError([...new Set(msgs)].join("；"));
       } else {
         setStudents((res[0].data ?? []) as StudentRecord[]);
         setProgress((res[1].data ?? []) as ProgressRecord[]);

@@ -2,23 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useStudent, type Student } from "../contexts/StudentContext";
-
-function toErrorMessage(err: unknown): string {
-  // 网络错误（如 fetch 失败）统一给友好提示
-  if (err instanceof TypeError) return "网络开小差了，请稍后再试";
-
-  const message =
-    err instanceof Error
-      ? err.message
-      : typeof err === "object" && err !== null && "message" in err
-        ? String((err as { message: unknown }).message)
-        : "";
-
-  if (!message || /fetch failed|failed to fetch|network/i.test(message)) {
-    return "网络开小差了，请稍后再试";
-  }
-  return message;
-}
+import { toUserFacingMessage } from "../lib/errorMessage";
 
 export default function StudentSetup() {
   const { student, saveStudent } = useStudent();
@@ -83,7 +67,7 @@ export default function StudentSetup() {
       saveStudent(saved);
       navigate("/");
     } catch (err) {
-      setError(toErrorMessage(err));
+      setError(toUserFacingMessage(err));
     } finally {
       setSubmitting(false);
     }

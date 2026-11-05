@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { toErrorMessage } from "../../lib/errorMessage";
 import { forumCategoryClass, type ForumPost } from "../../lib/forum";
 import { formatDateTime } from "../../lib/format";
 
@@ -31,7 +32,7 @@ export default function ForumManage() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
+        setError(toErrorMessage(err));
         setLoading(false);
       });
     return () => {
@@ -50,7 +51,7 @@ export default function ForumManage() {
       .delete()
       .eq("id", post.id);
     if (delErr) {
-      setError(delErr.message);
+      setError(toErrorMessage(delErr));
       setDeletingId(null);
       return;
     }
@@ -61,7 +62,7 @@ export default function ForumManage() {
       const rows = await fetchForumPosts();
       setPosts(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toErrorMessage(err));
     }
   };
 

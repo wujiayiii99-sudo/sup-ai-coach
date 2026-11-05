@@ -8,6 +8,7 @@ import {
   type ForumPost,
 } from "../../lib/forum";
 import { formatDateTime } from "../../lib/format";
+import { toUserFacingMessage } from "../../lib/errorMessage";
 
 export default function ForumList() {
   const [posts, setPosts] = useState<ForumPost[]>([]);
@@ -25,7 +26,7 @@ export default function ForumList() {
       .then(({ data, error: err }) => {
         if (cancelled) return;
         if (err) {
-          setError(err.message);
+          setError(toUserFacingMessage(err));
         } else {
           setPosts((data ?? []) as ForumPost[]);
         }

@@ -9,6 +9,7 @@ import {
 } from "../../lib/forum";
 import { formatDateTime } from "../../lib/format";
 import { useStudent } from "../../contexts/StudentContext";
+import { toUserFacingMessage } from "../../lib/errorMessage";
 
 /** 拉取某个帖子的全部回复（不操作组件状态，便于复用） */
 async function fetchReplies(postId: string): Promise<ForumReply[]> {
@@ -43,7 +44,7 @@ export default function ForumDetail() {
       .then(({ data, error: err }) => {
         if (cancelled) return;
         if (err) {
-          setError(err.message);
+          setError(toUserFacingMessage(err));
         } else {
           setPost((data ?? null) as ForumPost | null);
         }
@@ -55,7 +56,7 @@ export default function ForumDetail() {
         if (!cancelled) setReplies(rows);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        if (!cancelled) setError(toUserFacingMessage(err));
       });
 
     return () => {
@@ -74,7 +75,7 @@ export default function ForumDetail() {
       content: text,
     });
     if (insertErr) {
-      setError(insertErr.message);
+      setError(toUserFacingMessage(insertErr));
       setReplying(false);
       return;
     }
@@ -83,7 +84,7 @@ export default function ForumDetail() {
       const rows = await fetchReplies(id);
       setReplies(rows);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(toUserFacingMessage(err));
     } finally {
       setReplying(false);
     }

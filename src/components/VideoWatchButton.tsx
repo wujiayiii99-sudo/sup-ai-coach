@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useStudent } from "../contexts/StudentContext";
+import { toUserFacingMessage } from "../lib/errorMessage";
 
 /** 视频下方「我已认真看完本视频」按钮：写入 video_watches 表 */
 export default function VideoWatchButton({ videoId }: { videoId: string }) {
@@ -37,7 +38,7 @@ export default function VideoWatchButton({ videoId }: { videoId: string }) {
         { onConflict: "student_id,video_id" }
       );
     if (err) {
-      setError(err.message);
+      setError(toUserFacingMessage(err));
       setSaving(false);
       return;
     }
